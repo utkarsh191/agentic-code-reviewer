@@ -1,7 +1,8 @@
-import Dashboard from "./pages/Dashboard";
+import CodeReview from "./pages/CodeReview";
+
 
 function App() {
-  return <Dashboard />;
+  return <CodeReview />;
 }
 
 export default App;
