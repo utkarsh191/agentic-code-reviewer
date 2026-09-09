@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import connectDB from "./config/db.js";
+import { reviewCode } from "./services/ai.service.js";
 
 dotenv.config();
 
@@ -15,6 +16,26 @@ app.get("/api/health", (_req, res) => {
     success: true,
     message: "Server is running",
   });
+});
+
+app.post("/api/review", async (req, res) => {
+  try {
+    const { code } = req.body;
+
+    const review = await reviewCode(code);
+
+    res.json({
+      success: true,
+      review,
+    });
+  } catch (error) {
+    console.error(error);
+
+    res.status(500).json({
+      success: false,
+      message: "AI review failed",
+    });
+  }
 });
 
 const PORT = process.env.PORT || 5000;
