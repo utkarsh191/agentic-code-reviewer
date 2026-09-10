@@ -3,7 +3,8 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import connectDB from "./config/db.js";
-import { reviewCode } from "./services/ai.service.js";
+import reviewRoutes from "./routes/review.routes.js";
+import githubRoutes from "./routes/github.routes.js";
 
 const app = express();
 
@@ -17,25 +18,8 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
-app.post("/api/review", async (req, res) => {
-  try {
-    const { code } = req.body;
-
-    const review = await reviewCode(code);
-
-    res.json({
-      success: true,
-      review,
-    });
-  } catch (error) {
-    console.error(error);
-
-    res.status(500).json({
-      success: false,
-      message: "AI review failed",
-    });
-  }
-});
+app.use("/api", reviewRoutes);
+app.use("/api/github", githubRoutes);
 
 const PORT = process.env.PORT || 5000;
 
