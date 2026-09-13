@@ -56,7 +56,9 @@ const CodeReview = () => {
     }
   };
 
-  const getSeverityClass = (severity: Finding["severity"]) => {
+  const getSeverityClass = (
+    severity: Finding["severity"]
+  ) => {
     switch (severity) {
       case "critical":
         return "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400";
@@ -72,7 +74,9 @@ const CodeReview = () => {
     }
   };
 
-  const getCategoryClass = (category: Finding["category"]) => {
+  const getCategoryClass = (
+    category: Finding["category"]
+  ) => {
     switch (category) {
       case "bug":
         return "bg-red-100 text-red-700 dark:bg-red-950 dark:text-red-400";
@@ -90,6 +94,7 @@ const CodeReview = () => {
 
   return (
     <div className="min-h-screen bg-white dark:bg-gray-950 text-gray-900 dark:text-white transition-colors">
+      {/* Header */}
       <header className="border-b border-gray-200 dark:border-gray-800">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <h1 className="text-xl font-bold">
@@ -103,6 +108,8 @@ const CodeReview = () => {
       </header>
 
       <main className="max-w-7xl mx-auto px-6 py-8">
+
+        {/* Page Heading */}
         <div className="mb-6">
           <h2 className="text-2xl font-bold">
             Review Your Code
@@ -132,12 +139,14 @@ const CodeReview = () => {
             className="w-full h-80 resize-none rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-950 p-4 font-mono text-sm text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
 
+          {/* Error */}
           {error && (
             <div className="mt-4 rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 px-4 py-3 text-sm text-red-600 dark:text-red-400">
               {error}
             </div>
           )}
 
+          {/* Review Button */}
           <div className="flex justify-end mt-4">
             <button
               type="button"
@@ -153,6 +162,7 @@ const CodeReview = () => {
         {/* Review Result */}
         {review && (
           <div className="mt-6 space-y-6">
+
             {/* Summary */}
             <div className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-5">
               <h3 className="text-lg font-semibold mb-3">
@@ -185,6 +195,8 @@ const CodeReview = () => {
                       key={`${finding.category}-${index}`}
                       className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-xl p-5"
                     >
+
+                      {/* Category + Severity */}
                       <div className="flex flex-wrap items-center gap-2 mb-4">
                         <span
                           className={`px-3 py-1 rounded-full text-xs font-semibold uppercase ${getCategoryClass(
@@ -203,6 +215,7 @@ const CodeReview = () => {
                         </span>
                       </div>
 
+                      {/* Description */}
                       <div>
                         <h4 className="text-sm font-semibold mb-2">
                           Description
@@ -213,6 +226,7 @@ const CodeReview = () => {
                         </p>
                       </div>
 
+                      {/* Suggested Fix */}
                       <div className="mt-5">
                         <h4 className="text-sm font-semibold mb-2">
                           Suggested Fix
@@ -224,11 +238,13 @@ const CodeReview = () => {
                           </p>
                         </div>
                       </div>
+
                     </div>
                   ))}
                 </div>
               </div>
             ) : (
+              /* No Findings */
               <div className="bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-900 rounded-xl p-5">
                 <h3 className="text-lg font-semibold text-green-700 dark:text-green-400">
                   No issues found
@@ -240,6 +256,7 @@ const CodeReview = () => {
                 </p>
               </div>
             )}
+
           </div>
         )}
       </main>
