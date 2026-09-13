@@ -1,7 +1,8 @@
 import OpenAI from "openai";
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
+  apiKey: process.env.GROQ_API_KEY,
+  baseURL: "https://api.groq.com/openai/v1",
 });
 
 export interface Finding {
@@ -59,55 +60,66 @@ const reviewSchema = {
 export const reviewCode = async (
   code: string
 ): Promise<ReviewResult> => {
-  const response = await openai.responses.create({
-    model: "gpt-5.6-luna",
-
-    instructions: `
+  const response = await openai.chat.completions.create({
+    model: "llama-3.3-70b-versatile",
+    messages: [
+      {
+        role: "system",
+        content: `
 You are an expert senior software engineer and code reviewer.
 
-Review the provided code carefully.
+Your job is to review code and identify meaningful technical issues.
 
-Analyze the code in four areas:
+Analyze the code in four categories:
 
-1. Bug analysis
-   - Find actual bugs and logical errors.
-   - Do not report something as a bug unless there is a reasonable technical basis.
+1. Bug
+- Find actual bugs and logical errors.
+- Check incorrect conditions, incorrect data handling, runtime errors,
+  edge cases, and broken logic.
 
-2. Security analysis
-   - Look for security vulnerabilities.
-   - Check issues such as injection, unsafe input handling, authentication problems,
-     authorization problems, sensitive data exposure, and insecure operations.
+2. Security
+- Find realistic security vulnerabilities.
+- Check unsafe input handling, injection risks, authentication problems,
+  authorization problems, sensitive data exposure, and insecure operations.
 
-3. Performance analysis
-   - Look for unnecessary expensive operations.
-   - Check inefficient loops, repeated calculations, unnecessary database/API calls,
-     memory problems, and poor algorithmic complexity.
+3. Performance
+- Find meaningful performance problems.
+- Check unnecessary loops, repeated calculations, expensive operations,
+  unnecessary API/database calls, memory problems, and poor algorithmic complexity.
 
-4. Quality analysis
-   - Check readability, maintainability, duplication, naming, structure,
-     error handling, and code organization.
+4. Quality
+- Check maintainability, readability, duplication, naming,
+  error handling, structure, and code organization.
 
 Important rules:
+
 - Only report meaningful issues.
 - Do not invent problems.
-- Do not report style preferences as bugs.
-- Every finding must contain a clear explanation and a practical suggested fix.
-- Use only these categories: bug, security, performance, quality.
-- Use only these severities: critical, high, medium, low.
+- Do not report personal style preferences as bugs.
+- Every finding must have a clear explanation.
+- Every finding must have a practical suggested fix.
+- Use only these categories:
+  bug, security, performance, quality.
+- Use only these severities:
+  critical, high, medium, low.
 - If there are no meaningful issues, return an empty findings array.
-`,
-
-    input: `
+- Return ONLY valid JSON matching the provided schema.
+        `,
+      },
+      {
+        role: "user",
+        content: `
 Review the following code:
 
 \`\`\`
 ${code}
 \`\`\`
-`,
-
-    text: {
-      format: {
-        type: "json_schema",
+        `,
+      },
+    ],
+    response_format: {
+      type: "json_schema",
+      json_schema: {
         name: "code_review",
         strict: true,
         schema: reviewSchema,
@@ -115,7 +127,7 @@ ${code}
     },
   });
 
-  const output = response.output_text;
+  const output = response.choices[0]?.message?.content;
 
   if (!output) {
     throw new Error("AI returned an empty response");
@@ -153,26 +165,26 @@ const isValidReviewResult = (
     return false;
   }
 
+  const validCategories = [
+    "bug",
+    "security",
+    "performance",
+    "quality",
+  ];
+
+  const validSeverities = [
+    "critical",
+    "high",
+    "medium",
+    "low",
+  ];
+
   return result.findings.every((finding) => {
     if (!finding || typeof finding !== "object") {
       return false;
     }
 
     const item = finding as Record<string, unknown>;
-
-    const validCategories = [
-      "bug",
-      "security",
-      "performance",
-      "quality",
-    ];
-
-    const validSeverities = [
-      "critical",
-      "high",
-      "medium",
-      "low",
-    ];
 
     return (
       validCategories.includes(item.category as string) &&
