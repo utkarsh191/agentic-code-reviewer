@@ -80,3 +80,72 @@ export const githubCallback = async (
     });
   }
 };
+
+export const getRepositories = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const authorizationHeader = req.headers.authorization;
+
+    if (!authorizationHeader) {
+      res.status(401).json({
+        success: false,
+        message: "GitHub access token is required",
+      });
+
+      return;
+    }
+
+    const response = await axios.get(
+      "https://api.github.com/user/repos",
+      {
+        headers: {
+          Authorization: authorizationHeader,
+          Accept: "application/vnd.github+json",
+        },
+        params: {
+          per_page: 100,
+          sort: "updated",
+          direction: "desc",
+        },
+      }
+    );
+
+    const repositories = response.data.map(
+      (repo: {
+        id: number;
+        name: string;
+        full_name: string;
+        private: boolean;
+        language: string | null;
+        html_url: string;
+        description: string | null;
+        owner: {
+          login: string;
+        };
+      }) => ({
+        id: repo.id,
+        name: repo.name,
+        fullName: repo.full_name,
+        private: repo.private,
+        language: repo.language,
+        htmlUrl: repo.html_url,
+        description: repo.description,
+        owner: repo.owner.login,
+      })
+    );
+
+    res.status(200).json({
+      success: true,
+      repositories,
+    });
+  } catch (error) {
+    console.error("GitHub repositories error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch GitHub repositories",
+    });
+  }
+};
