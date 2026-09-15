@@ -238,7 +238,6 @@ const CodeReview = () => {
                           </p>
                         </div>
                       </div>
-
                     </div>
                   ))}
                 </div>

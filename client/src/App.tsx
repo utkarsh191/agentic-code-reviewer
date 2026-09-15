@@ -1,8 +1,9 @@
-import CodeReview from "./pages/CodeReview";
+
+import Repositories from "./pages/Repositories";
 
 
 function App() {
-  return <CodeReview />;
+  return <Repositories />;
 }
 
 export default App;
