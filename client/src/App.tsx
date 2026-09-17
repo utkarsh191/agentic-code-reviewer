@@ -1,9 +1,7 @@
-import PullRequestDetails from "./pages/PullRequestDetails";
+import PullRequests from "./pages/PullRequests";
 
 function App() {
-  return (
-    <PullRequestDetails />
-  );
+  return <PullRequests />;
 }
 
 export default App;
