@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 interface PullRequestDetailsProps {
   onBack: () => void;
 }
@@ -5,6 +7,8 @@ interface PullRequestDetailsProps {
 const PullRequestDetails = ({
   onBack,
 }: PullRequestDetailsProps) => {
+  const [selectedFile, setSelectedFile] = useState("src/auth.js");
+
   return (
     <div className="min-h-screen bg-gray-950 text-white">
       <header className="border-b border-gray-800">
@@ -61,7 +65,6 @@ const PullRequestDetails = ({
               </div>
             </div>
 
-            {/* Start Review */}
             <button
               type="button"
               className="shrink-0 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition"
@@ -111,7 +114,15 @@ const PullRequestDetails = ({
           </h3>
 
           <div className="mt-4 space-y-3">
-            <div className="border border-gray-800 rounded-lg p-4">
+            <button
+              type="button"
+              onClick={() => setSelectedFile("src/auth.js")}
+              className={`w-full text-left border rounded-lg p-4 transition ${
+                selectedFile === "src/auth.js"
+                  ? "border-blue-500 bg-blue-950/20"
+                  : "border-gray-800 hover:border-gray-700"
+              }`}
+            >
               <p className="font-medium">
                 src/auth.js
               </p>
@@ -119,9 +130,17 @@ const PullRequestDetails = ({
               <p className="text-sm text-gray-500 mt-1">
                 Authentication changes
               </p>
-            </div>
+            </button>
 
-            <div className="border border-gray-800 rounded-lg p-4">
+            <button
+              type="button"
+              onClick={() => setSelectedFile("src/user.js")}
+              className={`w-full text-left border rounded-lg p-4 transition ${
+                selectedFile === "src/user.js"
+                  ? "border-blue-500 bg-blue-950/20"
+                  : "border-gray-800 hover:border-gray-700"
+              }`}
+            >
               <p className="font-medium">
                 src/user.js
               </p>
@@ -129,9 +148,17 @@ const PullRequestDetails = ({
               <p className="text-sm text-gray-500 mt-1">
                 User logic changes
               </p>
-            </div>
+            </button>
 
-            <div className="border border-gray-800 rounded-lg p-4">
+            <button
+              type="button"
+              onClick={() => setSelectedFile("src/api.js")}
+              className={`w-full text-left border rounded-lg p-4 transition ${
+                selectedFile === "src/api.js"
+                  ? "border-blue-500 bg-blue-950/20"
+                  : "border-gray-800 hover:border-gray-700"
+              }`}
+            >
               <p className="font-medium">
                 src/api.js
               </p>
@@ -139,7 +166,14 @@ const PullRequestDetails = ({
               <p className="text-sm text-gray-500 mt-1">
                 API changes
               </p>
-            </div>
+            </button>
+          </div>
+
+          <div className="mt-5 text-sm text-gray-400">
+            Selected file:{" "}
+            <span className="text-white font-medium">
+              {selectedFile}
+            </span>
           </div>
         </div>
       </main>
