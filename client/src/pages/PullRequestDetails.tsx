@@ -23,6 +23,18 @@ interface ChangedFile {
   diff: DiffLine[];
 }
 
+interface Finding {
+  category: "bug" | "security" | "performance" | "quality";
+  severity: "critical" | "high" | "medium" | "low";
+  description: string;
+  suggestedFix: string;
+}
+
+interface ReviewResult {
+  summary: string;
+  findings: Finding[];
+}
+
 const mockPullRequests: PullRequest[] = [
   { id: 1, number: 25, title: "Fix authentication bug", author: "Utkarsh", status: "open", updatedAt: "2 hours ago" },
   { id: 2, number: 24, title: "Add dashboard UI", author: "Utkarsh", status: "open", updatedAt: "1 day ago" },
@@ -173,6 +185,41 @@ const getDiffLinePrefix = (type: DiffLine["type"]) => {
   }
 };
 
+const getSeverityClass = (severity: Finding["severity"]) => {
+  switch (severity) {
+    case "critical":
+      return "bg-red-500/10 text-red-400";
+    case "high":
+      return "bg-orange-500/10 text-orange-400";
+    case "medium":
+      return "bg-yellow-500/10 text-yellow-400";
+    case "low":
+      return "bg-blue-500/10 text-blue-400";
+  }
+};
+
+const getCategoryClass = (category: Finding["category"]) => {
+  switch (category) {
+    case "bug":
+      return "bg-red-500/10 text-red-400";
+    case "security":
+      return "bg-purple-500/10 text-purple-400";
+    case "performance":
+      return "bg-green-500/10 text-green-400";
+    case "quality":
+      return "bg-gray-500/10 text-gray-400";
+  }
+};
+
+// Converts diff lines back into the file's resulting code (added + context lines)
+// so the existing /api/review endpoint can review it like normal code.
+const buildCodeFromDiff = (diff: DiffLine[]) => {
+  return diff
+    .filter((line) => line.type !== "removed")
+    .map((line) => line.content)
+    .join("\n");
+};
+
 const PullRequestDetails = () => {
   const { number } = useParams<{ number: string }>();
   const navigate = useNavigate();
@@ -181,6 +228,9 @@ const PullRequestDetails = () => {
   const changedFiles = mockChangedFiles[Number(number)] ?? [];
 
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [review, setReview] = useState<ReviewResult | null>(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewError, setReviewError] = useState("");
 
   const handleBack = () => navigate("/pull-requests");
 
@@ -200,6 +250,46 @@ const PullRequestDetails = () => {
   }
 
   const activeFile = changedFiles.find((f) => f.filename === selectedFile) ?? changedFiles[0] ?? null;
+
+  const handleSelectFile = (filename: string) => {
+    setSelectedFile(filename);
+    setReview(null);
+    setReviewError("");
+  };
+
+  const handleStartReview = async () => {
+    if (!activeFile) return;
+
+    try {
+      setReviewLoading(true);
+      setReviewError("");
+      setReview(null);
+
+      const code = buildCodeFromDiff(activeFile.diff);
+
+      const response = await fetch("http://localhost:5000/api/review", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ code }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        setReviewError(data.message || "AI review failed.");
+        return;
+      }
+
+      setReview(data.review);
+    } catch (error) {
+      console.error("Review request failed:", error);
+      setReviewError("Unable to connect to the server.");
+    } finally {
+      setReviewLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-950 text-white p-6">
@@ -235,7 +325,7 @@ const PullRequestDetails = () => {
               <button
                 key={file.filename}
                 type="button"
-                onClick={() => setSelectedFile(file.filename)}
+                onClick={() => handleSelectFile(file.filename)}
                 className={`w-full flex items-center justify-between border rounded-lg px-4 py-3 text-left transition ${
                   activeFile?.filename === file.filename
                     ? "border-blue-500 bg-blue-950/20"
@@ -269,9 +359,20 @@ const PullRequestDetails = () => {
       {/* Diff Viewer */}
       {activeFile && (
         <div className="mt-8">
-          <h2 className="text-xl font-semibold mb-4">
-            Diff — <span className="font-mono text-gray-300">{activeFile.filename}</span>
-          </h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-semibold">
+              Diff — <span className="font-mono text-gray-300">{activeFile.filename}</span>
+            </h2>
+
+            <button
+              type="button"
+              onClick={handleStartReview}
+              disabled={reviewLoading}
+              className="bg-blue-600 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60 text-white font-medium px-5 py-2.5 rounded-lg text-sm transition"
+            >
+              {reviewLoading ? "Reviewing..." : "Start Review"}
+            </button>
+          </div>
 
           <div className="border border-gray-800 rounded-lg overflow-hidden">
             <div className="bg-gray-900 font-mono text-sm">
@@ -285,6 +386,76 @@ const PullRequestDetails = () => {
               ))}
             </div>
           </div>
+
+          {/* Review Error */}
+          {reviewError && (
+            <div className="mt-4 rounded-lg border border-red-900 bg-red-950/30 px-4 py-3 text-sm text-red-400">
+              {reviewError}
+            </div>
+          )}
+
+          {/* Review Result */}
+          {review && (
+            <div className="mt-6 space-y-6">
+              <div className="border border-gray-800 bg-gray-900 rounded-xl p-5">
+                <h3 className="text-lg font-semibold mb-3">Review Summary</h3>
+                <p className="text-sm leading-6 text-gray-400">{review.summary}</p>
+                <div className="mt-4 text-sm font-medium">
+                  {review.findings.length} {review.findings.length === 1 ? "finding" : "findings"} detected
+                </div>
+              </div>
+
+              {review.findings.length > 0 ? (
+                <div>
+                  <h3 className="text-lg font-semibold mb-4">Findings</h3>
+                  <div className="space-y-4">
+                    {review.findings.map((finding, index) => (
+                      <div
+                        key={`${finding.category}-${index}`}
+                        className="border border-gray-800 bg-gray-900 rounded-xl p-5"
+                      >
+                        <div className="flex flex-wrap items-center gap-2 mb-4">
+                          <span
+                            className={`px-3 py-1 rounded-full text-xs font-semibold uppercase ${getCategoryClass(
+                              finding.category
+                            )}`}
+                          >
+                            {finding.category}
+                          </span>
+                          <span
+                            className={`px-3 py-1 rounded-full text-xs font-semibold uppercase ${getSeverityClass(
+                              finding.severity
+                            )}`}
+                          >
+                            {finding.severity}
+                          </span>
+                        </div>
+
+                        <div>
+                          <h4 className="text-sm font-semibold mb-2">Description</h4>
+                          <p className="text-sm leading-6 text-gray-400">{finding.description}</p>
+                        </div>
+
+                        <div className="mt-5">
+                          <h4 className="text-sm font-semibold mb-2">Suggested Fix</h4>
+                          <div className="rounded-lg border border-gray-800 bg-gray-950 p-4">
+                            <p className="text-sm leading-6 text-gray-400">{finding.suggestedFix}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="border border-green-900 bg-green-950/30 rounded-xl p-5">
+                  <h3 className="text-lg font-semibold text-green-400">No issues found</h3>
+                  <p className="mt-2 text-sm text-green-500">
+                    AI did not find any meaningful bugs, security, performance, or quality issues.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
