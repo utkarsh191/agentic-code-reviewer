@@ -298,3 +298,75 @@ export const getPullRequestDetails = async (
     });
   }
 };
+
+export const getPullRequestFiles = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const authorizationHeader = req.headers.authorization;
+
+    if (!authorizationHeader) {
+      res.status(401).json({
+        success: false,
+        message: "GitHub access token is required",
+      });
+
+      return;
+    }
+
+    const { owner, repo, number } = req.params;
+
+    if (!owner || !repo || !number) {
+      res.status(400).json({
+        success: false,
+        message: "Repository owner, name and pull request number are required",
+      });
+
+      return;
+    }
+
+    const response = await axios.get(
+      `https://api.github.com/repos/${owner}/${repo}/pulls/${number}/files`,
+      {
+        headers: {
+          Authorization: authorizationHeader,
+          Accept: "application/vnd.github+json",
+        },
+        params: {
+          per_page: 100,
+        },
+      }
+    );
+
+    const files = response.data.map(
+      (file: {
+        filename: string;
+        status: string;
+        additions: number;
+        deletions: number;
+        patch?: string;
+      }) => ({
+        filename: file.filename,
+        status: file.status,
+        additions: file.additions,
+        deletions: file.deletions,
+        // patch can be missing for binary files or very large diffs —
+        // handled gracefully as null instead of throwing.
+        patch: file.patch ?? null,
+      })
+    );
+
+    res.status(200).json({
+      success: true,
+      files,
+    });
+  } catch (error) {
+    console.error("GitHub pull request files error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch GitHub pull request files",
+    });
+  }
+};
