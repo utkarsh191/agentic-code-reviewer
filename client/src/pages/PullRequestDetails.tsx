@@ -20,6 +20,7 @@ const PullRequestDetails = ({
       </header>
 
       <main className="max-w-6xl mx-auto px-6 py-8">
+        {/* Back Button */}
         <button
           type="button"
           onClick={onBack}
@@ -55,6 +56,39 @@ const PullRequestDetails = ({
             <span className="px-2.5 py-1 rounded-full text-xs bg-green-500/10 text-green-400">
               Open
             </span>
+          </div>
+        </div>
+
+        {/* PR Stats */}
+        <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="border border-gray-800 bg-gray-900 rounded-xl p-5">
+            <p className="text-sm text-gray-500">
+              Changed Files
+            </p>
+
+            <p className="text-2xl font-bold mt-2">
+              3
+            </p>
+          </div>
+
+          <div className="border border-gray-800 bg-gray-900 rounded-xl p-5">
+            <p className="text-sm text-gray-500">
+              Additions
+            </p>
+
+            <p className="text-2xl font-bold mt-2 text-green-400">
+              +24
+            </p>
+          </div>
+
+          <div className="border border-gray-800 bg-gray-900 rounded-xl p-5">
+            <p className="text-sm text-gray-500">
+              Deletions
+            </p>
+
+            <p className="text-2xl font-bold mt-2 text-red-400">
+              -8
+            </p>
           </div>
         </div>
 
