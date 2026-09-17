@@ -228,3 +228,73 @@ export const getPullRequests = async (
     });
   }
 };
+
+export const getPullRequestDetails = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const authorizationHeader = req.headers.authorization;
+
+    if (!authorizationHeader) {
+      res.status(401).json({
+        success: false,
+        message: "GitHub access token is required",
+      });
+
+      return;
+    }
+
+    const { owner, repo, number } = req.params;
+
+    if (!owner || !repo || !number) {
+      res.status(400).json({
+        success: false,
+        message: "Repository owner, name and pull request number are required",
+      });
+
+      return;
+    }
+
+    const response = await axios.get(
+      `https://api.github.com/repos/${owner}/${repo}/pulls/${number}`,
+      {
+        headers: {
+          Authorization: authorizationHeader,
+          Accept: "application/vnd.github+json",
+        },
+      }
+    );
+
+    const pr = response.data;
+
+    const pullRequest = {
+      id: pr.id,
+      number: pr.number,
+      title: pr.title,
+      description: pr.body,
+      status: pr.state === "open" ? "open" : "closed",
+      author: pr.user.login,
+      updatedAt: pr.updated_at,
+      createdAt: pr.created_at,
+      baseBranch: pr.base.ref,
+      headBranch: pr.head.ref,
+      additions: pr.additions,
+      deletions: pr.deletions,
+      changedFiles: pr.changed_files,
+      htmlUrl: pr.html_url,
+    };
+
+    res.status(200).json({
+      success: true,
+      pullRequest,
+    });
+  } catch (error) {
+    console.error("GitHub pull request details error:", error);
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch GitHub pull request details",
+    });
+  }
+};
