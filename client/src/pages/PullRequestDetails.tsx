@@ -35,6 +35,19 @@ interface ReviewResult {
   findings: Finding[];
 }
 
+// Separate interface for ESLint static analysis findings.
+// Kept independent from the existing Finding interface so the
+// AI review contract is never modified.
+interface ESLintFinding {
+  rule: string;
+  severity: "error" | "warning";
+  file: string;
+  line: number;
+  column: number;
+  message: string;
+  suggestedFix: string;
+}
+
 const mockPullRequests: PullRequest[] = [
   { id: 1, number: 25, title: "Fix authentication bug", author: "Utkarsh", status: "open", updatedAt: "2 hours ago" },
   { id: 2, number: 24, title: "Add dashboard UI", author: "Utkarsh", status: "open", updatedAt: "1 day ago" },
@@ -152,6 +165,69 @@ const mockChangedFiles: Record<number, ChangedFile[]> = {
   ],
 };
 
+// Temporary mock ESLint data, keyed by filename.
+// Will be replaced by the real backend ESLint endpoint response
+// in the next step — shape already matches ESLintFinding.
+const mockESLintFindings: Record<string, ESLintFinding[]> = {
+  "src/auth/login.ts": [
+    {
+      rule: "no-unused-vars",
+      severity: "warning",
+      file: "src/auth/login.ts",
+      line: 3,
+      column: 9,
+      message: "'isValid' is assigned a value but only used once.",
+      suggestedFix: "Consider inlining the variable directly into the if condition if it is not reused elsewhere.",
+    },
+    {
+      rule: "@typescript-eslint/no-explicit-any",
+      severity: "error",
+      file: "src/auth/login.ts",
+      line: 1,
+      column: 32,
+      message: "Unexpected any. Specify a different type for 'password'.",
+      suggestedFix: "Replace 'any' with a specific type such as 'string' to ensure type safety.",
+    },
+  ],
+  "src/auth/session.ts": [
+    {
+      rule: "no-magic-numbers",
+      severity: "warning",
+      file: "src/auth/session.ts",
+      line: 2,
+      column: 20,
+      message: "No magic number: 3600.",
+      suggestedFix: "Extract 3600 into a named constant like SESSION_EXPIRY_SECONDS for clarity.",
+    },
+  ],
+  "src/middleware/authGuard.ts": [
+    {
+      rule: "@typescript-eslint/no-explicit-any",
+      severity: "error",
+      file: "src/middleware/authGuard.ts",
+      line: 1,
+      column: 30,
+      message: "Unexpected any. Specify a different type for 'req', 'res', 'next'.",
+      suggestedFix: "Use proper Express types: Request, Response, NextFunction from 'express'.",
+    },
+  ],
+  "src/pages/Dashboard.tsx": [],
+  "src/components/Sidebar.tsx": [],
+  "src/api/user.ts": [
+    {
+      rule: "no-unused-vars",
+      severity: "warning",
+      file: "src/api/user.ts",
+      line: 2,
+      column: 30,
+      message: "'data' is defined but never used before being narrowed.",
+      suggestedFix: "Ensure the parameter type is used correctly, or remove if genuinely unused.",
+    },
+  ],
+  "src/types/user.ts": [],
+  "src/api/legacyUser.ts": [],
+};
+
 const getFileStatusClass = (status: ChangedFile["status"]) => {
   switch (status) {
     case "added":
@@ -211,6 +287,15 @@ const getCategoryClass = (category: Finding["category"]) => {
   }
 };
 
+const getESLintSeverityClass = (severity: ESLintFinding["severity"]) => {
+  switch (severity) {
+    case "error":
+      return "bg-red-500/10 text-red-400";
+    case "warning":
+      return "bg-yellow-500/10 text-yellow-400";
+  }
+};
+
 // Converts diff lines back into the file's resulting code (added + context lines)
 // so the existing /api/review endpoint can review it like normal code.
 const buildCodeFromDiff = (diff: DiffLine[]) => {
@@ -228,9 +313,14 @@ const PullRequestDetails = () => {
   const changedFiles = mockChangedFiles[Number(number)] ?? [];
 
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+
   const [review, setReview] = useState<ReviewResult | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewError, setReviewError] = useState("");
+
+  const [eslintFindings, setESLintFindings] = useState<ESLintFinding[] | null>(null);
+  const [eslintLoading, setESLintLoading] = useState(false);
+  const [eslintError, setESLintError] = useState("");
 
   const handleBack = () => navigate("/pull-requests");
 
@@ -255,6 +345,8 @@ const PullRequestDetails = () => {
     setSelectedFile(filename);
     setReview(null);
     setReviewError("");
+    setESLintFindings(null);
+    setESLintError("");
   };
 
   const handleStartReview = async () => {
@@ -288,6 +380,28 @@ const PullRequestDetails = () => {
       setReviewError("Unable to connect to the server.");
     } finally {
       setReviewLoading(false);
+    }
+  };
+
+  // Temporary mock implementation. Will be replaced with a real
+  // backend call (e.g. GET /api/github/.../eslint) in the next step.
+  const handleRunESLint = async () => {
+    if (!activeFile) return;
+
+    try {
+      setESLintLoading(true);
+      setESLintError("");
+      setESLintFindings(null);
+
+      await new Promise((resolve) => setTimeout(resolve, 500));
+
+      const findings = mockESLintFindings[activeFile.filename] ?? [];
+      setESLintFindings(findings);
+    } catch (error) {
+      console.error("ESLint check failed:", error);
+      setESLintError("Unable to run ESLint check.");
+    } finally {
+      setESLintLoading(false);
     }
   };
 
@@ -359,19 +473,30 @@ const PullRequestDetails = () => {
       {/* Diff Viewer */}
       {activeFile && (
         <div className="mt-8">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
             <h2 className="text-xl font-semibold">
               Diff — <span className="font-mono text-gray-300">{activeFile.filename}</span>
             </h2>
 
-            <button
-              type="button"
-              onClick={handleStartReview}
-              disabled={reviewLoading}
-              className="bg-blue-600 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60 text-white font-medium px-5 py-2.5 rounded-lg text-sm transition"
-            >
-              {reviewLoading ? "Reviewing..." : "Start Review"}
-            </button>
+            <div className="flex gap-3">
+              <button
+                type="button"
+                onClick={handleRunESLint}
+                disabled={eslintLoading}
+                className="bg-gray-700 hover:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-60 text-white font-medium px-5 py-2.5 rounded-lg text-sm transition"
+              >
+                {eslintLoading ? "Running ESLint..." : "Run ESLint Check"}
+              </button>
+
+              <button
+                type="button"
+                onClick={handleStartReview}
+                disabled={reviewLoading}
+                className="bg-blue-600 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60 text-white font-medium px-5 py-2.5 rounded-lg text-sm transition"
+              >
+                {reviewLoading ? "Reviewing..." : "Start Review"}
+              </button>
+            </div>
           </div>
 
           <div className="border border-gray-800 rounded-lg overflow-hidden">
@@ -387,18 +512,86 @@ const PullRequestDetails = () => {
             </div>
           </div>
 
-          {/* Review Error */}
+          {/* ESLint Error */}
+          {eslintError && (
+            <div className="mt-4 rounded-lg border border-red-900 bg-red-950/30 px-4 py-3 text-sm text-red-400">
+              {eslintError}
+            </div>
+          )}
+
+          {/* Static Analysis — ESLint Findings (separate section) */}
+          {eslintFindings && (
+            <div className="mt-6">
+              <h3 className="text-lg font-semibold mb-4">
+                Static Analysis — ESLint Findings ({eslintFindings.length})
+              </h3>
+
+              {eslintFindings.length === 0 ? (
+                <div className="border border-green-900 bg-green-950/30 rounded-xl p-5">
+                  <h4 className="text-base font-semibold text-green-400">No ESLint issues found</h4>
+                  <p className="mt-2 text-sm text-green-500">
+                    Static analysis did not find any rule violations in this file.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {eslintFindings.map((finding, index) => (
+                    <div
+                      key={`${finding.rule}-${index}`}
+                      className="border border-gray-800 bg-gray-900 rounded-xl p-5"
+                    >
+                      <div className="flex flex-wrap items-center gap-2 mb-4">
+                        <span
+                          className={`px-3 py-1 rounded-full text-xs font-semibold uppercase ${getESLintSeverityClass(
+                            finding.severity
+                          )}`}
+                        >
+                          {finding.severity}
+                        </span>
+
+                        <span className="px-3 py-1 rounded-full text-xs font-mono bg-gray-800 text-gray-300">
+                          {finding.rule}
+                        </span>
+
+                        <span className="text-xs text-gray-500 font-mono">
+                          {finding.file}:{finding.line}:{finding.column}
+                        </span>
+                      </div>
+
+                      <div>
+                        <h4 className="text-sm font-semibold mb-2">Message</h4>
+                        <p className="text-sm leading-6 text-gray-400">
+                          ESLint: {finding.rule} at {finding.file}:{finding.line}:{finding.column} — {finding.message}
+                        </p>
+                      </div>
+
+                      <div className="mt-5">
+                        <h4 className="text-sm font-semibold mb-2">Suggested Fix</h4>
+                        <div className="rounded-lg border border-gray-800 bg-gray-950 p-4">
+                          <p className="text-sm leading-6 text-gray-400">{finding.suggestedFix}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* AI Review Error */}
           {reviewError && (
             <div className="mt-4 rounded-lg border border-red-900 bg-red-950/30 px-4 py-3 text-sm text-red-400">
               {reviewError}
             </div>
           )}
 
-          {/* Review Result */}
+          {/* AI Review Findings (existing, separate section) */}
           {review && (
             <div className="mt-6 space-y-6">
+              <h3 className="text-lg font-semibold">AI Review Findings</h3>
+
               <div className="border border-gray-800 bg-gray-900 rounded-xl p-5">
-                <h3 className="text-lg font-semibold mb-3">Review Summary</h3>
+                <h4 className="text-base font-semibold mb-3">Review Summary</h4>
                 <p className="text-sm leading-6 text-gray-400">{review.summary}</p>
                 <div className="mt-4 text-sm font-medium">
                   {review.findings.length} {review.findings.length === 1 ? "finding" : "findings"} detected
@@ -406,49 +599,46 @@ const PullRequestDetails = () => {
               </div>
 
               {review.findings.length > 0 ? (
-                <div>
-                  <h3 className="text-lg font-semibold mb-4">Findings</h3>
-                  <div className="space-y-4">
-                    {review.findings.map((finding, index) => (
-                      <div
-                        key={`${finding.category}-${index}`}
-                        className="border border-gray-800 bg-gray-900 rounded-xl p-5"
-                      >
-                        <div className="flex flex-wrap items-center gap-2 mb-4">
-                          <span
-                            className={`px-3 py-1 rounded-full text-xs font-semibold uppercase ${getCategoryClass(
-                              finding.category
-                            )}`}
-                          >
-                            {finding.category}
-                          </span>
-                          <span
-                            className={`px-3 py-1 rounded-full text-xs font-semibold uppercase ${getSeverityClass(
-                              finding.severity
-                            )}`}
-                          >
-                            {finding.severity}
-                          </span>
-                        </div>
+                <div className="space-y-4">
+                  {review.findings.map((finding, index) => (
+                    <div
+                      key={`${finding.category}-${index}`}
+                      className="border border-gray-800 bg-gray-900 rounded-xl p-5"
+                    >
+                      <div className="flex flex-wrap items-center gap-2 mb-4">
+                        <span
+                          className={`px-3 py-1 rounded-full text-xs font-semibold uppercase ${getCategoryClass(
+                            finding.category
+                          )}`}
+                        >
+                          {finding.category}
+                        </span>
+                        <span
+                          className={`px-3 py-1 rounded-full text-xs font-semibold uppercase ${getSeverityClass(
+                            finding.severity
+                          )}`}
+                        >
+                          {finding.severity}
+                        </span>
+                      </div>
 
-                        <div>
-                          <h4 className="text-sm font-semibold mb-2">Description</h4>
-                          <p className="text-sm leading-6 text-gray-400">{finding.description}</p>
-                        </div>
+                      <div>
+                        <h4 className="text-sm font-semibold mb-2">Description</h4>
+                        <p className="text-sm leading-6 text-gray-400">{finding.description}</p>
+                      </div>
 
-                        <div className="mt-5">
-                          <h4 className="text-sm font-semibold mb-2">Suggested Fix</h4>
-                          <div className="rounded-lg border border-gray-800 bg-gray-950 p-4">
-                            <p className="text-sm leading-6 text-gray-400">{finding.suggestedFix}</p>
-                          </div>
+                      <div className="mt-5">
+                        <h4 className="text-sm font-semibold mb-2">Suggested Fix</h4>
+                        <div className="rounded-lg border border-gray-800 bg-gray-950 p-4">
+                          <p className="text-sm leading-6 text-gray-400">{finding.suggestedFix}</p>
                         </div>
                       </div>
-                    ))}
-                  </div>
+                    </div>
+                  ))}
                 </div>
               ) : (
                 <div className="border border-green-900 bg-green-950/30 rounded-xl p-5">
-                  <h3 className="text-lg font-semibold text-green-400">No issues found</h3>
+                  <h4 className="text-base font-semibold text-green-400">No issues found</h4>
                   <p className="mt-2 text-sm text-green-500">
                     AI did not find any meaningful bugs, security, performance, or quality issues.
                   </p>
