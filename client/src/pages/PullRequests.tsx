@@ -38,12 +38,19 @@ const PullRequests = () => {
   ]);
 
   const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<"all" | "open" | "closed">(
+    "all"
+  );
 
   const filteredPullRequests = pullRequests.filter((pr) => {
-    return (
+    const matchesSearch =
       pr.title.toLowerCase().includes(search.toLowerCase()) ||
-      pr.number.toString().includes(search)
-    );
+      pr.number.toString().includes(search);
+
+    const matchesFilter =
+      filter === "all" || pr.status === filter;
+
+    return matchesSearch && matchesFilter;
   });
 
   return (
@@ -78,6 +85,45 @@ const PullRequests = () => {
             placeholder="Search pull requests..."
             className="w-full rounded-xl border border-gray-800 bg-gray-900 px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
           />
+        </div>
+
+        {/* Filters */}
+        <div className="flex gap-3 mt-4">
+          <button
+            type="button"
+            onClick={() => setFilter("all")}
+            className={`px-4 py-2 rounded-lg text-sm font-medium ${
+              filter === "all"
+                ? "bg-blue-600 text-white"
+                : "bg-gray-800 text-gray-300"
+            }`}
+          >
+            All
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setFilter("open")}
+            className={`px-4 py-2 rounded-lg text-sm font-medium ${
+              filter === "open"
+                ? "bg-green-600 text-white"
+                : "bg-gray-800 text-gray-300"
+            }`}
+          >
+            Open
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setFilter("closed")}
+            className={`px-4 py-2 rounded-lg text-sm font-medium ${
+              filter === "closed"
+                ? "bg-gray-600 text-white"
+                : "bg-gray-800 text-gray-300"
+            }`}
+          >
+            Closed
+          </button>
         </div>
 
         {/* Pull Request List */}
