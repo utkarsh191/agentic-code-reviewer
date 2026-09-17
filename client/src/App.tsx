@@ -1,9 +1,9 @@
 
-import Repositories from "./pages/Repositories";
+import PullRequests from "./pages/PullRequests";
 
 
 function App() {
-  return <Repositories />;
+  return <PullRequests />;
 }
 
 export default App;
