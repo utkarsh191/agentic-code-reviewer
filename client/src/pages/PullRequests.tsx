@@ -42,6 +42,9 @@ const PullRequests = () => {
     "all"
   );
 
+  const [selectedPR, setSelectedPR] =
+    useState<PullRequest | null>(null);
+
   const filteredPullRequests = pullRequests.filter((pr) => {
     const matchesSearch =
       pr.title.toLowerCase().includes(search.toLowerCase()) ||
@@ -131,7 +134,11 @@ const PullRequests = () => {
           {filteredPullRequests.map((pr) => (
             <div
               key={pr.id}
-              className="border border-gray-800 bg-gray-900 rounded-xl p-5"
+              className={`border rounded-xl p-5 ${
+                selectedPR?.id === pr.id
+                  ? "border-blue-500 bg-blue-950/20"
+                  : "border-gray-800 bg-gray-900"
+              }`}
             >
               <div className="flex items-center justify-between">
                 <div>
@@ -168,9 +175,16 @@ const PullRequests = () => {
 
                 <button
                   type="button"
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium"
+                  onClick={() => setSelectedPR(pr)}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium ${
+                    selectedPR?.id === pr.id
+                      ? "bg-green-600 text-white"
+                      : "bg-blue-600 hover:bg-blue-700 text-white"
+                  }`}
                 >
-                  Select PR
+                  {selectedPR?.id === pr.id
+                    ? "Selected"
+                    : "Select PR"}
                 </button>
               </div>
             </div>
@@ -183,6 +197,30 @@ const PullRequests = () => {
             </div>
           )}
         </div>
+
+        {/* Selected PR */}
+        {selectedPR && (
+          <div className="mt-6 border border-blue-500/30 bg-blue-950/10 rounded-xl p-5">
+            <p className="text-sm text-gray-400">
+              Selected Pull Request
+            </p>
+
+            <h3 className="text-lg font-semibold mt-1">
+              #{selectedPR.number} {selectedPR.title}
+            </h3>
+
+            <p className="text-sm text-gray-400 mt-2">
+              Author: {selectedPR.author}
+            </p>
+
+            <button
+              type="button"
+              className="mt-4 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium"
+            >
+              View PR Details
+            </button>
+          </div>
+        )}
       </main>
     </div>
   );
