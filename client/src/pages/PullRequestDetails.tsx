@@ -176,6 +176,49 @@ const PullRequestDetails = ({
             </span>
           </div>
         </div>
+
+        {/* Diff */}
+        <div className="mt-6 border border-gray-800 bg-gray-900 rounded-xl overflow-hidden">
+          <div className="px-5 py-4 border-b border-gray-800">
+            <h3 className="font-semibold">
+              Diff
+            </h3>
+
+            <p className="text-sm text-gray-500 mt-1">
+              Changes in {selectedFile}
+            </p>
+          </div>
+
+          <div className="p-5 font-mono text-sm overflow-x-auto">
+            <div className="text-gray-500">
+              @@ -10,5 +10,6 @@
+            </div>
+
+            <div className="mt-2 text-gray-300">
+              <span className="text-gray-500">
+                {" "}
+              </span>
+              function login(user) {"{"}
+            </div>
+
+            <div className="bg-red-950/30 text-red-400 px-2">
+              - return user.password;
+            </div>
+
+            <div className="bg-green-950/30 text-green-400 px-2">
+              + const password = user.password;
+            </div>
+
+            <div className="bg-green-950/30 text-green-400 px-2">
+              + validatePassword(password);
+            </div>
+
+            <div className="text-gray-300">
+              {" "}
+              {"}"}
+            </div>
+          </div>
+        </div>
       </main>
     </div>
   );
