@@ -37,6 +37,15 @@ const PullRequests = () => {
     },
   ]);
 
+  const [search, setSearch] = useState("");
+
+  const filteredPullRequests = pullRequests.filter((pr) => {
+    return (
+      pr.title.toLowerCase().includes(search.toLowerCase()) ||
+      pr.number.toString().includes(search)
+    );
+  });
+
   return (
     <div className="min-h-screen bg-gray-950 text-white">
       <header className="border-b border-gray-800">
@@ -60,8 +69,20 @@ const PullRequests = () => {
           Select a pull request to review its code changes.
         </p>
 
+        {/* Search */}
+        <div className="mt-6">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search pull requests..."
+            className="w-full rounded-xl border border-gray-800 bg-gray-900 px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+          />
+        </div>
+
+        {/* Pull Request List */}
         <div className="mt-6 space-y-4">
-          {pullRequests.map((pr) => (
+          {filteredPullRequests.map((pr) => (
             <div
               key={pr.id}
               className="border border-gray-800 bg-gray-900 rounded-xl p-5"
@@ -108,6 +129,13 @@ const PullRequests = () => {
               </div>
             </div>
           ))}
+
+          {/* No Results */}
+          {filteredPullRequests.length === 0 && (
+            <div className="text-center py-10 text-gray-500">
+              No pull requests found.
+            </div>
+          )}
         </div>
       </main>
     </div>
