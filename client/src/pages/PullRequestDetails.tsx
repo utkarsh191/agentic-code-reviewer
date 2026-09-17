@@ -31,31 +31,43 @@ const PullRequestDetails = ({
 
         {/* PR Information */}
         <div className="mt-6 border border-gray-800 bg-gray-900 rounded-xl p-6">
-          <div className="flex items-center gap-3">
-            <span className="text-gray-500 text-lg">
-              #25
-            </span>
+          <div className="flex items-start justify-between gap-6">
+            <div>
+              <div className="flex items-center gap-3">
+                <span className="text-gray-500 text-lg">
+                  #25
+                </span>
 
-            <h2 className="text-2xl font-bold">
-              Fix authentication bug
-            </h2>
-          </div>
+                <h2 className="text-2xl font-bold">
+                  Fix authentication bug
+                </h2>
+              </div>
 
-          <div className="flex items-center gap-4 mt-4 text-sm text-gray-400">
-            <span>
-              Author:{" "}
-              <span className="text-gray-300">
-                Utkarsh
-              </span>
-            </span>
+              <div className="flex items-center gap-4 mt-4 text-sm text-gray-400">
+                <span>
+                  Author:{" "}
+                  <span className="text-gray-300">
+                    Utkarsh
+                  </span>
+                </span>
 
-            <span>
-              Updated 2 hours ago
-            </span>
+                <span>
+                  Updated 2 hours ago
+                </span>
 
-            <span className="px-2.5 py-1 rounded-full text-xs bg-green-500/10 text-green-400">
-              Open
-            </span>
+                <span className="px-2.5 py-1 rounded-full text-xs bg-green-500/10 text-green-400">
+                  Open
+                </span>
+              </div>
+            </div>
+
+            {/* Start Review */}
+            <button
+              type="button"
+              className="shrink-0 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium transition"
+            >
+              Start Review
+            </button>
           </div>
         </div>
 
