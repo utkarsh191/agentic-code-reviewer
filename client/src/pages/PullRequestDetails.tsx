@@ -28,6 +28,7 @@ const PullRequestDetails = ({
           ← Back to Pull Requests
         </button>
 
+        {/* PR Information */}
         <div className="mt-6 border border-gray-800 bg-gray-900 rounded-xl p-6">
           <div className="flex items-center gap-3">
             <span className="text-gray-500 text-lg">
@@ -54,6 +55,45 @@ const PullRequestDetails = ({
             <span className="px-2.5 py-1 rounded-full text-xs bg-green-500/10 text-green-400">
               Open
             </span>
+          </div>
+        </div>
+
+        {/* Changed Files */}
+        <div className="mt-6 border border-gray-800 bg-gray-900 rounded-xl p-6">
+          <h3 className="text-lg font-semibold">
+            Changed Files
+          </h3>
+
+          <div className="mt-4 space-y-3">
+            <div className="border border-gray-800 rounded-lg p-4">
+              <p className="font-medium">
+                src/auth.js
+              </p>
+
+              <p className="text-sm text-gray-500 mt-1">
+                Authentication changes
+              </p>
+            </div>
+
+            <div className="border border-gray-800 rounded-lg p-4">
+              <p className="font-medium">
+                src/user.js
+              </p>
+
+              <p className="text-sm text-gray-500 mt-1">
+                User logic changes
+              </p>
+            </div>
+
+            <div className="border border-gray-800 rounded-lg p-4">
+              <p className="font-medium">
+                src/api.js
+              </p>
+
+              <p className="text-sm text-gray-500 mt-1">
+                API changes
+              </p>
+            </div>
           </div>
         </div>
       </main>
