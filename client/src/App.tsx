@@ -1,9 +1,13 @@
-
-import PullRequests from "./pages/PullRequests";
-
+import PullRequestDetails from "./pages/PullRequestDetails";
 
 function App() {
-  return <PullRequests />;
+  return (
+    <PullRequestDetails
+      onBack={() => {
+        window.history.back();
+      }}
+    />
+  );
 }
 
 export default App;
