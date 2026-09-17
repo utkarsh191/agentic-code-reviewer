@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import axios from "axios";
 import { githubConfig } from "../config/github.js";
+import { parsePatchToDiffLines } from "../services/diff.service.js";
 
 export const githubLogin = (_req: Request, res: Response) => {
   const params = new URLSearchParams({
@@ -354,6 +355,7 @@ export const getPullRequestFiles = async (
         // patch can be missing for binary files or very large diffs —
         // handled gracefully as null instead of throwing.
         patch: file.patch ?? null,
+        diff: parsePatchToDiffLines(file.patch),
       })
     );
 
