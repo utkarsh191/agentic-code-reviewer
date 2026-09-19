@@ -281,6 +281,7 @@ export const getPullRequestDetails = async (
       createdAt: pr.created_at,
       baseBranch: pr.base.ref,
       headBranch: pr.head.ref,
+      headSha: pr.head.sha,
       additions: pr.additions,
       deletions: pr.deletions,
       changedFiles: pr.changed_files,
