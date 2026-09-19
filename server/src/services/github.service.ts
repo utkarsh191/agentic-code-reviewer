@@ -38,3 +38,32 @@ export const getPullRequests = async (
     htmlUrl: pr.html_url,
   }));
 };
+
+export const getPullRequest = async (
+  owner: string,
+  repo: string,
+  number: number,
+  accessToken: string
+) => {
+  const response = await axios.get(
+    `${GITHUB_API_URL}/repos/${owner}/${repo}/pulls/${number}`,
+    {
+      headers: getHeaders(accessToken),
+    }
+  );
+
+  const pr = response.data;
+
+  return {
+    id: pr.id,
+    number: pr.number,
+    title: pr.title,
+    author: pr.user.login,
+    status: pr.state,
+    updatedAt: pr.updated_at,
+    createdAt: pr.created_at,
+    description: pr.body,
+    body: pr.body,
+    htmlUrl: pr.html_url,
+  };
+};
