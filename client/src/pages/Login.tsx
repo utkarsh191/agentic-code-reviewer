@@ -1,3 +1,6 @@
+// client/src/pages/Login.tsx
+import { GITHUB_LOGIN_URL } from "../services/auth";
+
 const Login = () => {
   return (
     <div className="min-h-screen bg-gray-950 flex items-center justify-center px-4">
@@ -35,8 +38,7 @@ const Login = () => {
           <button
             type="button"
             onClick={() => {
-              window.location.href =
-                "http://localhost:5000/api/github/login";
+              window.location.href = GITHUB_LOGIN_URL;
             }}
             className="mt-8 w-full flex items-center justify-center gap-3 bg-white hover:bg-gray-200 text-gray-900 font-medium py-3 px-4 rounded-lg transition duration-200"
           >
