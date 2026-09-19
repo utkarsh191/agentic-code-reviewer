@@ -33,3 +33,13 @@ export const parsePatchToDiffLines = (
     };
   });
 };
+
+export const getChangedLines = (
+  diffLines: DiffLine[]
+): DiffLine[] => {
+  return diffLines.filter(
+    (line) =>
+      line.type === "added" ||
+      line.type === "removed"
+  );
+};
