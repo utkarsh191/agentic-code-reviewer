@@ -67,3 +67,28 @@ export const getPullRequest = async (
     htmlUrl: pr.html_url,
   };
 };
+
+export const getPullRequestFiles = async (
+  owner: string,
+  repo: string,
+  number: number,
+  accessToken: string
+) => {
+  const response = await axios.get(
+    `${GITHUB_API_URL}/repos/${owner}/${repo}/pulls/${number}/files`,
+    {
+      headers: getHeaders(accessToken),
+      params: {
+        per_page: 100,
+      },
+    }
+  );
+
+  return response.data.map((file: any) => ({
+    filename: file.filename,
+    status: file.status,
+    additions: file.additions,
+    deletions: file.deletions,
+    patch: file.patch ?? null,
+  }));
+};
