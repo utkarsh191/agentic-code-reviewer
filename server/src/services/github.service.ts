@@ -92,3 +92,30 @@ export const getPullRequestFiles = async (
     patch: file.patch ?? null,
   }));
 };
+
+export const getFileContent = async (
+  owner: string,
+  repo: string,
+  path: string,
+  accessToken: string,
+  ref: string
+) => {
+  const response = await axios.get(
+    `${GITHUB_API_URL}/repos/${owner}/${repo}/contents/${path}`,
+    {
+      headers: getHeaders(accessToken),
+      params: {
+        ref,
+      },
+    }
+  );
+
+  if (!response.data.content) {
+    throw new Error(`File content not available: ${path}`);
+  }
+
+  return Buffer.from(
+    response.data.content,
+    "base64"
+  ).toString("utf-8");
+};
