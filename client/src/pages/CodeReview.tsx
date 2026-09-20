@@ -36,6 +36,8 @@ const CodeReview = () => {
         "Content-Type": "application/json",
       };
 
+      // Server par auth lagne ke baad ye header zaroori hoga.
+      // Abhi server ise ignore karta hai, to kuch nahi bigadta.
       const accessToken = getAccessToken();
 
       if (accessToken) {
@@ -58,8 +60,8 @@ const CodeReview = () => {
       }
 
       setReview(data.review);
-    } catch (err) {
-      console.error("Review request failed:", err);
+    } catch (error) {
+      console.error("Review request failed:", error);
       setError("Unable to connect to the server.");
     } finally {
       setLoading(false);
