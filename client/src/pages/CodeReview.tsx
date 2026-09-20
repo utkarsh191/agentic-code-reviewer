@@ -1,4 +1,6 @@
+// client/src/pages/CodeReview.tsx
 import { useState } from "react";
+import { API_URL, getAccessToken } from "../services/auth";
 
 interface Finding {
   category: "bug" | "security" | "performance" | "quality";
@@ -30,11 +32,19 @@ const CodeReview = () => {
       setError("");
       setReview(null);
 
-      const response = await fetch("http://localhost:5000/api/review", {
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+
+      const accessToken = getAccessToken();
+
+      if (accessToken) {
+        headers.Authorization = `Bearer ${accessToken}`;
+      }
+
+      const response = await fetch(`${API_URL}/api/review`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers,
         body: JSON.stringify({
           code,
         }),
@@ -48,8 +58,8 @@ const CodeReview = () => {
       }
 
       setReview(data.review);
-    } catch (error) {
-      console.error("Review request failed:", error);
+    } catch (err) {
+      console.error("Review request failed:", err);
       setError("Unable to connect to the server.");
     } finally {
       setLoading(false);
