@@ -1,4 +1,84 @@
+// client/src/pages/Dashboard.tsx
+import { useEffect, useState } from "react";
+import { Link, NavLink, useNavigate } from "react-router-dom";
+import {
+  getRepositories,
+  type Repository,
+} from "../services/github.service";
+import { clearAuth, getUser } from "../services/auth";
+
+const getNavClass = ({ isActive }: { isActive: boolean }) =>
+  `block px-4 py-3 rounded-lg font-medium ${
+    isActive
+      ? "bg-blue-600 text-white"
+      : "text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-800"
+  }`;
+
 const Dashboard = () => {
+  const navigate = useNavigate();
+  const user = getUser();
+
+  const [repositories, setRepositories] = useState<Repository[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
+
+  // Repos fetch karna. reloadKey badalne par dobara chalta hai ("Try again" ke liye).
+  // setState sirf async callbacks ke andar hai, effect ki body mein seedha nahi.
+  useEffect(() => {
+    let cancelled = false;
+
+    getRepositories()
+      .then((data) => {
+        if (!cancelled) {
+          setRepositories(data);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Failed to load repositories."
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadKey]);
+
+  const handleRetry = () => {
+    setError("");
+    setLoading(true);
+    setReloadKey((key) => key + 1);
+  };
+
+  const handleLogout = () => {
+    clearAuth();
+    navigate("/login", { replace: true });
+  };
+
+  const totalCount = repositories.length;
+  const privateCount = repositories.filter((repo) => repo.private).length;
+  const publicCount = totalCount - privateCount;
+
+  // Server repos "recently updated" order mein bhejta hai, to pehle 5 hi latest hain.
+  const recentRepositories = repositories.slice(0, 5);
+
+  // Loading ya error mein number ki jagah "-" dikhate hain.
+  const showStat = (value: number): string =>
+    loading || error ? "-" : String(value);
+
+  const displayName = user?.login ?? "GitHub User";
+  const avatarInitial = displayName.charAt(0).toUpperCase();
+
   return (
     <div className="min-h-screen bg-white dark:bg-gray-950 text-gray-900 dark:text-white">
 
@@ -18,35 +98,17 @@ const Dashboard = () => {
 
         {/* Navigation */}
         <nav className="space-y-2">
-
-          <a
-            href="#"
-            className="block px-4 py-3 rounded-lg bg-blue-600 text-white font-medium"
-          >
+          <NavLink to="/dashboard" end className={getNavClass}>
             Dashboard
-          </a>
+          </NavLink>
 
-          <a
-            href="#"
-            className="block px-4 py-3 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-800"
-          >
+          <NavLink to="/repositories" className={getNavClass}>
             Repositories
-          </a>
+          </NavLink>
 
-          <a
-            href="#"
-            className="block px-4 py-3 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-800"
-          >
-            Reviews
-          </a>
-
-          <a
-            href="#"
-            className="block px-4 py-3 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-800"
-          >
-            Settings
-          </a>
-
+          <NavLink to="/code-review" className={getNavClass}>
+            Code Review
+          </NavLink>
         </nav>
       </aside>
 
@@ -62,21 +124,37 @@ const Dashboard = () => {
             </h2>
 
             <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-              Overview of your code reviews
+              Overview of your GitHub repositories
             </p>
           </div>
 
           {/* Profile */}
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full bg-gray-300 dark:bg-gray-700 flex items-center justify-center">
-              <span className="text-sm font-medium">
-                U
-              </span>
-            </div>
+            {user?.avatarUrl ? (
+              <img
+                src={user.avatarUrl}
+                alt={displayName}
+                className="w-9 h-9 rounded-full"
+              />
+            ) : (
+              <div className="w-9 h-9 rounded-full bg-gray-300 dark:bg-gray-700 flex items-center justify-center">
+                <span className="text-sm font-medium">
+                  {avatarInitial}
+                </span>
+              </div>
+            )}
 
             <span className="text-sm font-medium">
-              GitHub User
+              {displayName}
             </span>
+
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="ml-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
+            >
+              Logout
+            </button>
           </div>
 
         </header>
@@ -87,112 +165,128 @@ const Dashboard = () => {
           {/* Welcome */}
           <div className="mb-8">
             <h3 className="text-2xl font-semibold">
-              Welcome back 👋
+              Welcome back, {displayName} 👋
             </h3>
 
             <p className="text-gray-500 dark:text-gray-400 mt-2">
-              Here's what's happening with your code reviews.
+              Pick a repository and review its pull requests with AI.
             </p>
           </div>
+
+          {/* Error */}
+          {error && (
+            <div className="mb-8 rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 px-4 py-3 flex items-center justify-between gap-4">
+              <p className="text-sm text-red-600 dark:text-red-400">
+                {error}
+              </p>
+
+              <button
+                type="button"
+                onClick={handleRetry}
+                className="shrink-0 px-4 py-2 rounded-lg text-sm font-medium bg-red-600 hover:bg-red-700 text-white"
+              >
+                Try again
+              </button>
+            </div>
+          )}
 
           {/* Stats */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
 
-            {/* Repositories */}
+            {/* Total */}
             <div className="p-6 rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                Repositories
+                Total Repositories
               </p>
 
               <h4 className="text-3xl font-bold mt-2">
-                12
+                {showStat(totalCount)}
               </h4>
             </div>
 
-            {/* Reviews */}
+            {/* Public */}
             <div className="p-6 rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                Total Reviews
+                Public
               </p>
 
               <h4 className="text-3xl font-bold mt-2">
-                48
+                {showStat(publicCount)}
               </h4>
             </div>
 
-            {/* Issues */}
+            {/* Private */}
             <div className="p-6 rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                Issues Found
+                Private
               </p>
 
               <h4 className="text-3xl font-bold mt-2">
-                126
+                {showStat(privateCount)}
               </h4>
             </div>
 
           </div>
 
-          {/* Recent Reviews */}
+          {/* Recently Updated Repositories */}
           <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900">
 
-            <div className="p-6 border-b border-gray-200 dark:border-gray-800">
+            <div className="p-6 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
               <h3 className="text-lg font-semibold">
-                Recent Reviews
+                Recently Updated Repositories
               </h3>
+
+              <Link
+                to="/repositories"
+                className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+              >
+                View all
+              </Link>
             </div>
 
-            <div className="divide-y divide-gray-200 dark:divide-gray-800">
-
-              <div className="p-6 flex items-center justify-between">
-                <div>
-                  <h4 className="font-medium">
-                    ecommerce-api
-                  </h4>
-
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                    Pull Request #42
-                  </p>
-                </div>
-
-                <span className="px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
-                  Passed
-                </span>
+            {loading && (
+              <div className="p-6 text-sm text-gray-500 dark:text-gray-400">
+                Loading repositories...
               </div>
+            )}
 
-              <div className="p-6 flex items-center justify-between">
-                <div>
-                  <h4 className="font-medium">
-                    payment-service
-                  </h4>
-
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                    Pull Request #18
-                  </p>
-                </div>
-
-                <span className="px-3 py-1 rounded-full text-xs font-medium bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400">
-                  Issues Found
-                </span>
+            {!loading && !error && recentRepositories.length === 0 && (
+              <div className="p-6 text-sm text-gray-500 dark:text-gray-400">
+                No repositories found.
               </div>
+            )}
 
-              <div className="p-6 flex items-center justify-between">
-                <div>
-                  <h4 className="font-medium">
-                    frontend-app
-                  </h4>
+            {!loading && !error && recentRepositories.length > 0 && (
+              <div className="divide-y divide-gray-200 dark:divide-gray-800">
+                {recentRepositories.map((repo) => (
+                  <div
+                    key={repo.id}
+                    className="p-6 flex items-center justify-between gap-4"
+                  >
+                    <div className="min-w-0">
+                      <h4 className="font-medium truncate">
+                        {repo.fullName}
+                      </h4>
 
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
-                    Pull Request #31
-                  </p>
-                </div>
+                      <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+                        {repo.language || "Unknown"} ·{" "}
+                        {repo.private ? "Private" : "Public"}
+                      </p>
+                    </div>
 
-                <span className="px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">
-                  Passed
-                </span>
+                    <Link
+                      to={`/repositories/${encodeURIComponent(
+                        repo.owner
+                      )}/${encodeURIComponent(repo.name)}/pull-requests`}
+                      className="shrink-0 px-4 py-2 rounded-lg text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white"
+                    >
+                      View Pull Requests
+                    </Link>
+                  </div>
+                ))}
               </div>
+            )}
 
-            </div>
           </div>
 
         </div>
