@@ -1,264 +1,35 @@
-import { useState } from "react";
+// client/src/pages/PullRequestDetails.tsx
+import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import {
+  getFileESLintFindings,
+  getPullRequestDetails,
+  getPullRequestFiles,
+  reviewPullRequestFile,
+  type ChangedFile,
+  type ESLintFinding,
+  type Finding,
+  type PullRequestDetails as PullRequestInfo,
+  type ReviewResult,
+} from "../services/github.service";
+import ChangedFiles from "../components/ChangedFiles";
+import DiffViewer from "../components/DiffViewer";
+import ESLintFindings from "../components/ESLintFindings";
 
-interface PullRequest {
-  id: number;
-  number: number;
-  title: string;
-  author: string;
-  status: "open" | "closed";
-  updatedAt: string;
-}
+const ESLINT_SUPPORTED = /\.(js|jsx|mjs|cjs|ts|tsx)$/i;
 
-interface DiffLine {
-  type: "added" | "removed" | "context";
-  content: string;
-}
-
-interface ChangedFile {
-  filename: string;
-  status: "added" | "modified" | "deleted";
-  additions: number;
-  deletions: number;
-  diff: DiffLine[];
-}
-
-interface Finding {
-  category: "bug" | "security" | "performance" | "quality";
-  severity: "critical" | "high" | "medium" | "low";
-  description: string;
-  suggestedFix: string;
-}
-
-interface ReviewResult {
-  summary: string;
-  findings: Finding[];
-}
-
-// Separate interface for ESLint static analysis findings.
-// Kept independent from the existing Finding interface so the
-// AI review contract is never modified.
-interface ESLintFinding {
-  rule: string;
-  severity: "error" | "warning";
-  file: string;
-  line: number;
-  column: number;
-  message: string;
-  suggestedFix: string;
-}
-
-const mockPullRequests: PullRequest[] = [
-  { id: 1, number: 25, title: "Fix authentication bug", author: "Utkarsh", status: "open", updatedAt: "2 hours ago" },
-  { id: 2, number: 24, title: "Add dashboard UI", author: "Utkarsh", status: "open", updatedAt: "1 day ago" },
-  { id: 3, number: 23, title: "Update user API", author: "Utkarsh", status: "closed", updatedAt: "3 days ago" },
-];
-
-const mockChangedFiles: Record<number, ChangedFile[]> = {
-  25: [
-    {
-      filename: "src/auth/login.ts",
-      status: "modified",
-      additions: 4,
-      deletions: 2,
-      diff: [
-        { type: "context", content: "export const login = async (email: string, password: string) => {" },
-        { type: "removed", content: "  const user = await db.findUser(email);" },
-        { type: "removed", content: "  if (user.password === password) {" },
-        { type: "added", content: "  const user = await db.findUser(email);" },
-        { type: "added", content: "  const isValid = await bcrypt.compare(password, user.passwordHash);" },
-        { type: "added", content: "  if (isValid) {" },
-        { type: "context", content: "    return generateToken(user);" },
-        { type: "added", content: "  }" },
-        { type: "context", content: "};" },
-      ],
-    },
-    {
-      filename: "src/auth/session.ts",
-      status: "modified",
-      additions: 2,
-      deletions: 1,
-      diff: [
-        { type: "context", content: "export const createSession = (userId: string) => {" },
-        { type: "removed", content: "  const expiry = Date.now() + 3600;" },
-        { type: "added", content: "  const expiry = Date.now() + 3600 * 1000;" },
-        { type: "added", content: "  logSessionCreated(userId);" },
-        { type: "context", content: "};" },
-      ],
-    },
-    {
-      filename: "src/middleware/authGuard.ts",
-      status: "added",
-      additions: 5,
-      deletions: 0,
-      diff: [
-        { type: "added", content: "export const authGuard = (req, res, next) => {" },
-        { type: "added", content: "  const token = req.headers.authorization;" },
-        { type: "added", content: "  if (!token) return res.status(401).send('Unauthorized');" },
-        { type: "added", content: "  next();" },
-        { type: "added", content: "};" },
-      ],
-    },
-  ],
-  24: [
-    {
-      filename: "src/pages/Dashboard.tsx",
-      status: "modified",
-      additions: 3,
-      deletions: 1,
-      diff: [
-        { type: "context", content: "const Dashboard = () => {" },
-        { type: "removed", content: "  return <div>Dashboard</div>;" },
-        { type: "added", content: "  return (" },
-        { type: "added", content: "    <div className=\"dashboard-layout\">...</div>" },
-        { type: "added", content: "  );" },
-        { type: "context", content: "};" },
-      ],
-    },
-    {
-      filename: "src/components/Sidebar.tsx",
-      status: "added",
-      additions: 3,
-      deletions: 0,
-      diff: [
-        { type: "added", content: "const Sidebar = () => {" },
-        { type: "added", content: "  return <aside>Sidebar content</aside>;" },
-        { type: "added", content: "};" },
-      ],
-    },
-  ],
-  23: [
-    {
-      filename: "src/api/user.ts",
-      status: "modified",
-      additions: 2,
-      deletions: 2,
-      diff: [
-        { type: "removed", content: "export const getUser = (id) => db.find(id);" },
-        { type: "added", content: "export const getUser = (id: string): Promise<User> => db.find(id);" },
-        { type: "removed", content: "export const updateUser = (id, data) => db.update(id, data);" },
-        { type: "added", content: "export const updateUser = (id: string, data: Partial<User>) => db.update(id, data);" },
-      ],
-    },
-    {
-      filename: "src/types/user.ts",
-      status: "modified",
-      additions: 1,
-      deletions: 0,
-      diff: [
-        { type: "context", content: "interface User {" },
-        { type: "added", content: "  email: string;" },
-        { type: "context", content: "}" },
-      ],
-    },
-    {
-      filename: "src/api/legacyUser.ts",
-      status: "deleted",
-      additions: 0,
-      deletions: 3,
-      diff: [
-        { type: "removed", content: "export const oldGetUser = (id) => legacyDb.find(id);" },
-        { type: "removed", content: "export const oldUpdateUser = (id, data) => legacyDb.update(id, data);" },
-        { type: "removed", content: "export default { oldGetUser, oldUpdateUser };" },
-      ],
-    },
-  ],
+const getErrorMessage = (err: unknown, fallback: string): string => {
+  return err instanceof Error ? err.message : fallback;
 };
 
-// Temporary mock ESLint data, keyed by filename.
-// Will be replaced by the real backend ESLint endpoint response
-// in the next step — shape already matches ESLintFinding.
-const mockESLintFindings: Record<string, ESLintFinding[]> = {
-  "src/auth/login.ts": [
-    {
-      rule: "no-unused-vars",
-      severity: "warning",
-      file: "src/auth/login.ts",
-      line: 3,
-      column: 9,
-      message: "'isValid' is assigned a value but only used once.",
-      suggestedFix: "Consider inlining the variable directly into the if condition if it is not reused elsewhere.",
-    },
-    {
-      rule: "@typescript-eslint/no-explicit-any",
-      severity: "error",
-      file: "src/auth/login.ts",
-      line: 1,
-      column: 32,
-      message: "Unexpected any. Specify a different type for 'password'.",
-      suggestedFix: "Replace 'any' with a specific type such as 'string' to ensure type safety.",
-    },
-  ],
-  "src/auth/session.ts": [
-    {
-      rule: "no-magic-numbers",
-      severity: "warning",
-      file: "src/auth/session.ts",
-      line: 2,
-      column: 20,
-      message: "No magic number: 3600.",
-      suggestedFix: "Extract 3600 into a named constant like SESSION_EXPIRY_SECONDS for clarity.",
-    },
-  ],
-  "src/middleware/authGuard.ts": [
-    {
-      rule: "@typescript-eslint/no-explicit-any",
-      severity: "error",
-      file: "src/middleware/authGuard.ts",
-      line: 1,
-      column: 30,
-      message: "Unexpected any. Specify a different type for 'req', 'res', 'next'.",
-      suggestedFix: "Use proper Express types: Request, Response, NextFunction from 'express'.",
-    },
-  ],
-  "src/pages/Dashboard.tsx": [],
-  "src/components/Sidebar.tsx": [],
-  "src/api/user.ts": [
-    {
-      rule: "no-unused-vars",
-      severity: "warning",
-      file: "src/api/user.ts",
-      line: 2,
-      column: 30,
-      message: "'data' is defined but never used before being narrowed.",
-      suggestedFix: "Ensure the parameter type is used correctly, or remove if genuinely unused.",
-    },
-  ],
-  "src/types/user.ts": [],
-  "src/api/legacyUser.ts": [],
-};
+const formatDate = (isoDate: string): string => {
+  const date = new Date(isoDate);
 
-const getFileStatusClass = (status: ChangedFile["status"]) => {
-  switch (status) {
-    case "added":
-      return "bg-green-500/10 text-green-400";
-    case "modified":
-      return "bg-yellow-500/10 text-yellow-400";
-    case "deleted":
-      return "bg-red-500/10 text-red-400";
+  if (Number.isNaN(date.getTime())) {
+    return isoDate;
   }
-};
 
-const getDiffLineClass = (type: DiffLine["type"]) => {
-  switch (type) {
-    case "added":
-      return "bg-green-500/10 text-green-400";
-    case "removed":
-      return "bg-red-500/10 text-red-400";
-    case "context":
-      return "text-gray-400";
-  }
-};
-
-const getDiffLinePrefix = (type: DiffLine["type"]) => {
-  switch (type) {
-    case "added":
-      return "+";
-    case "removed":
-      return "-";
-    case "context":
-      return " ";
-  }
+  return date.toLocaleDateString();
 };
 
 const getSeverityClass = (severity: Finding["severity"]) => {
@@ -287,44 +58,98 @@ const getCategoryClass = (category: Finding["category"]) => {
   }
 };
 
-const getESLintSeverityClass = (severity: ESLintFinding["severity"]) => {
-  switch (severity) {
-    case "error":
-      return "bg-red-500/10 text-red-400";
-    case "warning":
-      return "bg-yellow-500/10 text-yellow-400";
-  }
-};
-
-// Converts diff lines back into the file's resulting code (added + context lines)
-// so the existing /api/review endpoint can review it like normal code.
-const buildCodeFromDiff = (diff: DiffLine[]) => {
-  return diff
-    .filter((line) => line.type !== "removed")
-    .map((line) => line.content)
-    .join("\n");
-};
-
 const PullRequestDetails = () => {
-  const { number } = useParams<{ number: string }>();
+  const {
+    owner,
+    repo,
+    number: numberParam,
+  } = useParams<{ owner: string; repo: string; number: string }>();
   const navigate = useNavigate();
 
-  const pullRequest = mockPullRequests.find((pr) => pr.number === Number(number));
-  const changedFiles = mockChangedFiles[Number(number)] ?? [];
+  const prNumber = Number(numberParam);
 
+  // PR data
+  const [pullRequest, setPullRequest] = useState<PullRequestInfo | null>(null);
+  const [files, setFiles] = useState<ChangedFile[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
+
+  // Selected file
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
 
+  // AI review
   const [review, setReview] = useState<ReviewResult | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewError, setReviewError] = useState("");
 
-  const [eslintFindings, setESLintFindings] = useState<ESLintFinding[] | null>(null);
+  // ESLint
+  const [eslintFindings, setESLintFindings] = useState<ESLintFinding[] | null>(
+    null
+  );
   const [eslintLoading, setESLintLoading] = useState(false);
   const [eslintError, setESLintError] = useState("");
 
-  const handleBack = () => navigate("/pull-requests");
+  // Har request ko ek number milta hai. File badalne par number badal jata hai,
+  // to purani request ka result naye file par galti se nahi dikhta.
+  const eslintRequestRef = useRef(0);
+  const reviewRequestRef = useRef(0);
 
-  if (!pullRequest) {
+  // PR details + changed files ek saath fetch karna.
+  // setState sirf async callbacks ke andar hai, effect ki body mein seedha nahi.
+  useEffect(() => {
+    if (!owner || !repo || Number.isNaN(prNumber)) {
+      return;
+    }
+
+    let cancelled = false;
+
+    Promise.all([
+      getPullRequestDetails(owner, repo, prNumber),
+      getPullRequestFiles(owner, repo, prNumber),
+    ])
+      .then(([details, changedFiles]) => {
+        if (!cancelled) {
+          setPullRequest(details);
+          setFiles(changedFiles);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setError(getErrorMessage(err, "Failed to load pull request."));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [owner, repo, prNumber, reloadKey]);
+
+  const handleBack = () => {
+    if (owner && repo) {
+      navigate(
+        `/repositories/${encodeURIComponent(owner)}/${encodeURIComponent(
+          repo
+        )}/pull-requests`
+      );
+    } else {
+      navigate("/repositories");
+    }
+  };
+
+  const handleRetry = () => {
+    setError("");
+    setLoading(true);
+    setReloadKey((key) => key + 1);
+  };
+
+  // Hooks ke baad hi early return, taaki hooks ka order na bigde.
+  if (!owner || !repo || Number.isNaN(prNumber)) {
     return (
       <div className="min-h-screen bg-gray-950 text-white p-6">
         <button
@@ -334,320 +159,358 @@ const PullRequestDetails = () => {
         >
           Back
         </button>
-        <h1 className="text-2xl font-bold">Pull Request #{number} not found</h1>
+
+        <h1 className="text-2xl font-bold">Invalid pull request URL</h1>
       </div>
     );
   }
 
-  const activeFile = changedFiles.find((f) => f.filename === selectedFile) ?? changedFiles[0] ?? null;
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-950 text-white p-6">
+        <p className="text-gray-400">Loading pull request...</p>
+      </div>
+    );
+  }
+
+  if (error || !pullRequest) {
+    return (
+      <div className="min-h-screen bg-gray-950 text-white p-6">
+        <button
+          type="button"
+          onClick={handleBack}
+          className="mb-6 rounded-lg bg-gray-800 px-4 py-2 text-sm font-medium"
+        >
+          Back
+        </button>
+
+        <div className="rounded-lg border border-red-900 bg-red-950/30 px-4 py-3 flex items-center justify-between gap-4">
+          <p className="text-sm text-red-400">
+            {error || "Pull request not found."}
+          </p>
+
+          <button
+            type="button"
+            onClick={handleRetry}
+            className="shrink-0 px-4 py-2 rounded-lg text-sm font-medium bg-red-600 hover:bg-red-700 text-white"
+          >
+            Try again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Koi file select nahi ki to pehli file active maani jayegi.
+  const activeFile =
+    files.find((f) => f.filename === selectedFile) ?? files[0] ?? null;
+
+  const isDeleted = activeFile?.status === "deleted";
+  const canRunESLint =
+    activeFile !== null &&
+    !isDeleted &&
+    ESLINT_SUPPORTED.test(activeFile.filename);
 
   const handleSelectFile = (filename: string) => {
+    // Chal rahi requests ko invalid kar do aur puraana result saaf karo.
+    eslintRequestRef.current += 1;
+    reviewRequestRef.current += 1;
+
     setSelectedFile(filename);
     setReview(null);
     setReviewError("");
+    setReviewLoading(false);
     setESLintFindings(null);
     setESLintError("");
+    setESLintLoading(false);
   };
 
-  const handleStartReview = async () => {
-    if (!activeFile) return;
+  const handleRunESLint = async () => {
+    if (!activeFile || !canRunESLint) {
+      return;
+    }
+
+    const requestId = ++eslintRequestRef.current;
+
+    setESLintLoading(true);
+    setESLintError("");
+    setESLintFindings(null);
 
     try {
-      setReviewLoading(true);
-      setReviewError("");
-      setReview(null);
+      const findings = await getFileESLintFindings(
+        owner,
+        repo,
+        prNumber,
+        activeFile.filename
+      );
 
-      const code = buildCodeFromDiff(activeFile.diff);
-
-      const response = await fetch("http://localhost:5000/api/review", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ code }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok || !data.success) {
-        setReviewError(data.message || "AI review failed.");
-        return;
+      if (requestId === eslintRequestRef.current) {
+        setESLintFindings(findings);
       }
-
-      setReview(data.review);
-    } catch (error) {
-      console.error("Review request failed:", error);
-      setReviewError("Unable to connect to the server.");
+    } catch (err) {
+      if (requestId === eslintRequestRef.current) {
+        setESLintError(getErrorMessage(err, "Unable to run ESLint check."));
+      }
     } finally {
-      setReviewLoading(false);
+      if (requestId === eslintRequestRef.current) {
+        setESLintLoading(false);
+      }
     }
   };
 
-  // Temporary mock implementation. Will be replaced with a real
-  // backend call (e.g. GET /api/github/.../eslint) in the next step.
-  const handleRunESLint = async () => {
-    if (!activeFile) return;
+  const handleStartReview = async () => {
+    if (!activeFile || isDeleted) {
+      return;
+    }
+
+    const requestId = ++reviewRequestRef.current;
+
+    setReviewLoading(true);
+    setReviewError("");
+    setReview(null);
 
     try {
-      setESLintLoading(true);
-      setESLintError("");
-      setESLintFindings(null);
+      const result = await reviewPullRequestFile(
+        owner,
+        repo,
+        prNumber,
+        activeFile.filename
+      );
 
-      await new Promise((resolve) => setTimeout(resolve, 500));
-
-      const findings = mockESLintFindings[activeFile.filename] ?? [];
-      setESLintFindings(findings);
-    } catch (error) {
-      console.error("ESLint check failed:", error);
-      setESLintError("Unable to run ESLint check.");
+      if (requestId === reviewRequestRef.current) {
+        setReview(result.review);
+        // Server review ke saath ESLint findings bhi bhejta hai.
+        setESLintFindings(result.eslintFindings);
+      }
+    } catch (err) {
+      if (requestId === reviewRequestRef.current) {
+        setReviewError(getErrorMessage(err, "AI review failed."));
+      }
     } finally {
-      setESLintLoading(false);
+      if (requestId === reviewRequestRef.current) {
+        setReviewLoading(false);
+      }
     }
   };
 
   return (
     <div className="min-h-screen bg-gray-950 text-white p-6">
-      <button
-        type="button"
-        onClick={handleBack}
-        className="mb-6 rounded-lg bg-gray-800 px-4 py-2 text-sm font-medium"
-      >
-        Back
-      </button>
+      <div className="max-w-6xl mx-auto">
+        <button
+          type="button"
+          onClick={handleBack}
+          className="mb-6 rounded-lg bg-gray-800 hover:bg-gray-700 px-4 py-2 text-sm font-medium"
+        >
+          Back to pull requests
+        </button>
 
-      <h1 className="text-3xl font-bold">
-        #{pullRequest.number} {pullRequest.title}
-      </h1>
+        {/* PR header */}
+        <p className="font-mono text-sm text-gray-500">
+          {owner}/{repo}
+        </p>
 
-      <p className="mt-3 text-gray-400">Author: {pullRequest.author}</p>
+        <h1 className="mt-1 text-3xl font-bold">
+          #{pullRequest.number} {pullRequest.title}
+        </h1>
 
-      <p className="mt-1 text-gray-400">
-        Status: {pullRequest.status} · Updated {pullRequest.updatedAt}
-      </p>
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gray-400">
+          <span
+            className={`px-2.5 py-1 rounded-full text-xs ${
+              pullRequest.status === "open"
+                ? "bg-green-500/10 text-green-400"
+                : "bg-gray-700 text-gray-300"
+            }`}
+          >
+            {pullRequest.status}
+          </span>
 
-      {/* Changed Files */}
-      <div className="mt-8">
-        <h2 className="text-xl font-semibold mb-4">
-          Changed Files ({changedFiles.length})
-        </h2>
+          <span>Author: {pullRequest.author}</span>
+          <span>Created {formatDate(pullRequest.createdAt)}</span>
+          <span>Updated {formatDate(pullRequest.updatedAt)}</span>
+        </div>
 
-        {changedFiles.length === 0 ? (
-          <p className="text-gray-500 text-sm">No changed files found for this pull request.</p>
-        ) : (
-          <div className="space-y-3">
-            {changedFiles.map((file) => (
-              <button
-                key={file.filename}
-                type="button"
-                onClick={() => handleSelectFile(file.filename)}
-                className={`w-full flex items-center justify-between border rounded-lg px-4 py-3 text-left transition ${
-                  activeFile?.filename === file.filename
-                    ? "border-blue-500 bg-blue-950/20"
-                    : "border-gray-800 bg-gray-900 hover:border-gray-700"
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <span
-                    className={`px-2.5 py-1 rounded-full text-xs font-medium uppercase ${getFileStatusClass(
-                      file.status
-                    )}`}
-                  >
-                    {file.status}
-                  </span>
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-gray-400">
+          <span className="font-mono">
+            {pullRequest.headBranch} → {pullRequest.baseBranch}
+          </span>
 
-                  <span className="text-sm font-mono text-gray-200">
-                    {file.filename}
-                  </span>
-                </div>
+          <span>{pullRequest.changedFiles} files changed</span>
+          <span className="text-green-400">+{pullRequest.additions}</span>
+          <span className="text-red-400">-{pullRequest.deletions}</span>
 
-                <div className="flex items-center gap-3 text-sm">
-                  <span className="text-green-400">+{file.additions}</span>
-                  <span className="text-red-400">-{file.deletions}</span>
-                </div>
-              </button>
-            ))}
+          
+            href={pullRequest.htmlUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-blue-400 hover:underline"
+          >
+            View on GitHub
+          </a>
+        </div>
+
+        {/* PR description: plain text ki tarah dikhta hai (HTML render nahi hota) */}
+        {pullRequest.description && (
+          <div className="mt-6 rounded-lg border border-gray-800 bg-gray-900 p-4">
+            <p className="text-sm leading-6 text-gray-300 whitespace-pre-wrap">
+              {pullRequest.description}
+            </p>
           </div>
         )}
-      </div>
 
-      {/* Diff Viewer */}
-      {activeFile && (
-        <div className="mt-8">
-          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
-            <h2 className="text-xl font-semibold">
-              Diff — <span className="font-mono text-gray-300">{activeFile.filename}</span>
-            </h2>
+        {/* Changed files */}
+        <ChangedFiles
+          files={files}
+          selectedFile={activeFile?.filename ?? null}
+          onSelectFile={handleSelectFile}
+        />
 
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={handleRunESLint}
-                disabled={eslintLoading}
-                className="bg-gray-700 hover:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-60 text-white font-medium px-5 py-2.5 rounded-lg text-sm transition"
-              >
-                {eslintLoading ? "Running ESLint..." : "Run ESLint Check"}
-              </button>
+        {activeFile && (
+          <>
+            {/* Actions */}
+            <div className="mt-8 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-sm text-gray-400">
+                {isDeleted
+                  ? "Deleted file ka review ya ESLint nahi ho sakta."
+                  : !canRunESLint
+                  ? "ESLint sirf JS/TS files (.js, .jsx, .ts, .tsx) par chalta hai."
+                  : "Selected file par static analysis ya AI review chalao."}
+              </p>
 
-              <button
-                type="button"
-                onClick={handleStartReview}
-                disabled={reviewLoading}
-                className="bg-blue-600 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60 text-white font-medium px-5 py-2.5 rounded-lg text-sm transition"
-              >
-                {reviewLoading ? "Reviewing..." : "Start Review"}
-              </button>
-            </div>
-          </div>
-
-          <div className="border border-gray-800 rounded-lg overflow-hidden">
-            <div className="bg-gray-900 font-mono text-sm">
-              {activeFile.diff.map((line, index) => (
-                <div
-                  key={index}
-                  className={`px-4 py-1 whitespace-pre-wrap ${getDiffLineClass(line.type)}`}
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={handleRunESLint}
+                  disabled={eslintLoading || !canRunESLint}
+                  className="bg-gray-700 hover:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-60 text-white font-medium px-5 py-2.5 rounded-lg text-sm transition"
                 >
-                  {getDiffLinePrefix(line.type)} {line.content}
-                </div>
-              ))}
-            </div>
-          </div>
+                  {eslintLoading ? "Running ESLint..." : "Run ESLint Check"}
+                </button>
 
-          {/* ESLint Error */}
-          {eslintError && (
-            <div className="mt-4 rounded-lg border border-red-900 bg-red-950/30 px-4 py-3 text-sm text-red-400">
-              {eslintError}
-            </div>
-          )}
-
-          {/* Static Analysis — ESLint Findings (separate section) */}
-          {eslintFindings && (
-            <div className="mt-6">
-              <h3 className="text-lg font-semibold mb-4">
-                Static Analysis — ESLint Findings ({eslintFindings.length})
-              </h3>
-
-              {eslintFindings.length === 0 ? (
-                <div className="border border-green-900 bg-green-950/30 rounded-xl p-5">
-                  <h4 className="text-base font-semibold text-green-400">No ESLint issues found</h4>
-                  <p className="mt-2 text-sm text-green-500">
-                    Static analysis did not find any rule violations in this file.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {eslintFindings.map((finding, index) => (
-                    <div
-                      key={`${finding.rule}-${index}`}
-                      className="border border-gray-800 bg-gray-900 rounded-xl p-5"
-                    >
-                      <div className="flex flex-wrap items-center gap-2 mb-4">
-                        <span
-                          className={`px-3 py-1 rounded-full text-xs font-semibold uppercase ${getESLintSeverityClass(
-                            finding.severity
-                          )}`}
-                        >
-                          {finding.severity}
-                        </span>
-
-                        <span className="px-3 py-1 rounded-full text-xs font-mono bg-gray-800 text-gray-300">
-                          {finding.rule}
-                        </span>
-
-                        <span className="text-xs text-gray-500 font-mono">
-                          {finding.file}:{finding.line}:{finding.column}
-                        </span>
-                      </div>
-
-                      <div>
-                        <h4 className="text-sm font-semibold mb-2">Message</h4>
-                        <p className="text-sm leading-6 text-gray-400">
-                          ESLint: {finding.rule} at {finding.file}:{finding.line}:{finding.column} — {finding.message}
-                        </p>
-                      </div>
-
-                      <div className="mt-5">
-                        <h4 className="text-sm font-semibold mb-2">Suggested Fix</h4>
-                        <div className="rounded-lg border border-gray-800 bg-gray-950 p-4">
-                          <p className="text-sm leading-6 text-gray-400">{finding.suggestedFix}</p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* AI Review Error */}
-          {reviewError && (
-            <div className="mt-4 rounded-lg border border-red-900 bg-red-950/30 px-4 py-3 text-sm text-red-400">
-              {reviewError}
-            </div>
-          )}
-
-          {/* AI Review Findings (existing, separate section) */}
-          {review && (
-            <div className="mt-6 space-y-6">
-              <h3 className="text-lg font-semibold">AI Review Findings</h3>
-
-              <div className="border border-gray-800 bg-gray-900 rounded-xl p-5">
-                <h4 className="text-base font-semibold mb-3">Review Summary</h4>
-                <p className="text-sm leading-6 text-gray-400">{review.summary}</p>
-                <div className="mt-4 text-sm font-medium">
-                  {review.findings.length} {review.findings.length === 1 ? "finding" : "findings"} detected
-                </div>
+                <button
+                  type="button"
+                  onClick={handleStartReview}
+                  disabled={reviewLoading || isDeleted}
+                  className="bg-blue-600 hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60 text-white font-medium px-5 py-2.5 rounded-lg text-sm transition"
+                >
+                  {reviewLoading ? "Reviewing..." : "Start Review"}
+                </button>
               </div>
+            </div>
 
-              {review.findings.length > 0 ? (
-                <div className="space-y-4">
-                  {review.findings.map((finding, index) => (
-                    <div
-                      key={`${finding.category}-${index}`}
-                      className="border border-gray-800 bg-gray-900 rounded-xl p-5"
-                    >
-                      <div className="flex flex-wrap items-center gap-2 mb-4">
-                        <span
-                          className={`px-3 py-1 rounded-full text-xs font-semibold uppercase ${getCategoryClass(
-                            finding.category
-                          )}`}
-                        >
-                          {finding.category}
-                        </span>
-                        <span
-                          className={`px-3 py-1 rounded-full text-xs font-semibold uppercase ${getSeverityClass(
-                            finding.severity
-                          )}`}
-                        >
-                          {finding.severity}
-                        </span>
-                      </div>
+            {/* Diff */}
+            <DiffViewer filename={activeFile.filename} diff={activeFile.diff} />
 
-                      <div>
-                        <h4 className="text-sm font-semibold mb-2">Description</h4>
-                        <p className="text-sm leading-6 text-gray-400">{finding.description}</p>
-                      </div>
+            {/* ESLint error */}
+            {eslintError && (
+              <div className="mt-4 rounded-lg border border-red-900 bg-red-950/30 px-4 py-3 text-sm text-red-400">
+                {eslintError}
+              </div>
+            )}
 
-                      <div className="mt-5">
-                        <h4 className="text-sm font-semibold mb-2">Suggested Fix</h4>
-                        <div className="rounded-lg border border-gray-800 bg-gray-950 p-4">
-                          <p className="text-sm leading-6 text-gray-400">{finding.suggestedFix}</p>
+            {/* ESLint findings (run ke baad hi dikhte hain) */}
+            {eslintFindings && <ESLintFindings findings={eslintFindings} />}
+
+            {/* AI review error */}
+            {reviewError && (
+              <div className="mt-4 rounded-lg border border-red-900 bg-red-950/30 px-4 py-3 text-sm text-red-400">
+                {reviewError}
+              </div>
+            )}
+
+            {/* AI review */}
+            {review && (
+              <div className="mt-8 space-y-6">
+                <h2 className="text-xl font-semibold">AI Review Findings</h2>
+
+                <div className="border border-gray-800 bg-gray-900 rounded-xl p-5">
+                  <h3 className="text-base font-semibold mb-3">
+                    Review Summary
+                  </h3>
+
+                  <p className="text-sm leading-6 text-gray-400">
+                    {review.summary}
+                  </p>
+
+                  <div className="mt-4 text-sm font-medium">
+                    {review.findings.length}{" "}
+                    {review.findings.length === 1 ? "finding" : "findings"}{" "}
+                    detected
+                  </div>
+                </div>
+
+                {review.findings.length > 0 ? (
+                  <div className="space-y-4">
+                    {review.findings.map((finding, index) => (
+                      <div
+                        key={`${finding.category}-${index}`}
+                        className="border border-gray-800 bg-gray-900 rounded-xl p-5"
+                      >
+                        <div className="flex flex-wrap items-center gap-2 mb-4">
+                          <span
+                            className={`px-3 py-1 rounded-full text-xs font-semibold uppercase ${getCategoryClass(
+                              finding.category
+                            )}`}
+                          >
+                            {finding.category}
+                          </span>
+
+                          <span
+                            className={`px-3 py-1 rounded-full text-xs font-semibold uppercase ${getSeverityClass(
+                              finding.severity
+                            )}`}
+                          >
+                            {finding.severity}
+                          </span>
+
+                          {finding.file && (
+                            <span className="text-xs text-gray-500 font-mono">
+                              {finding.file}
+                              {finding.line ? `:${finding.line}` : ""}
+                            </span>
+                          )}
+                        </div>
+
+                        <div>
+                          <h4 className="text-sm font-semibold mb-2">
+                            Description
+                          </h4>
+
+                          <p className="text-sm leading-6 text-gray-400">
+                            {finding.description}
+                          </p>
+                        </div>
+
+                        <div className="mt-5">
+                          <h4 className="text-sm font-semibold mb-2">
+                            Suggested Fix
+                          </h4>
+
+                          <div className="rounded-lg border border-gray-800 bg-gray-950 p-4">
+                            <p className="text-sm leading-6 text-gray-400">
+                              {finding.suggestedFix}
+                            </p>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="border border-green-900 bg-green-950/30 rounded-xl p-5">
-                  <h4 className="text-base font-semibold text-green-400">No issues found</h4>
-                  <p className="mt-2 text-sm text-green-500">
-                    AI did not find any meaningful bugs, security, performance, or quality issues.
-                  </p>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
+                    ))}
+                  </div>
+                ) : (
+                  <div className="border border-green-900 bg-green-950/30 rounded-xl p-5">
+                    <h3 className="text-base font-semibold text-green-400">
+                      No issues found
+                    </h3>
+
+                    <p className="mt-2 text-sm text-green-500">
+                      AI did not find any meaningful bugs, security,
+                      performance, or quality issues.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 };
