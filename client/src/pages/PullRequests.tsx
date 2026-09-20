@@ -1,58 +1,116 @@
-import { useState } from "react";
+// client/src/pages/PullRequests.tsx
+import { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import {
+  getPullRequests,
+  type PullRequest,
+} from "../services/github.service";
 
-interface PullRequest {
-  id: number;
-  number: number;
-  title: string;
-  author: string;
-  status: "open" | "closed";
-  updatedAt: string;
-}
+type PRFilter = "all" | "open" | "closed";
+
+const formatDate = (isoDate: string): string => {
+  const date = new Date(isoDate);
+
+  if (Number.isNaN(date.getTime())) {
+    return isoDate;
+  }
+
+  return date.toLocaleDateString();
+};
 
 const PullRequests = () => {
-  const [pullRequests] = useState<PullRequest[]>([
-    {
-      id: 1,
-      number: 25,
-      title: "Fix authentication bug",
-      author: "Utkarsh",
-      status: "open",
-      updatedAt: "2 hours ago",
-    },
-    {
-      id: 2,
-      number: 24,
-      title: "Add dashboard UI",
-      author: "Utkarsh",
-      status: "open",
-      updatedAt: "1 day ago",
-    },
-    {
-      id: 3,
-      number: 23,
-      title: "Update user API",
-      author: "Utkarsh",
-      status: "closed",
-      updatedAt: "3 days ago",
-    },
-  ]);
+  const { owner, repo } = useParams<{ owner: string; repo: string }>();
+  const navigate = useNavigate();
+
+  const [pullRequests, setPullRequests] = useState<PullRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
 
   const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<PRFilter>("all");
+  const [selectedPR, setSelectedPR] = useState<PullRequest | null>(null);
 
-  const [filter, setFilter] = useState<
-    "all" | "open" | "closed"
-  >("all");
+  // PRs fetch karna. owner/repo ya reloadKey badalne par dobara chalta hai.
+  // setState sirf async callbacks ke andar hai, effect ki body mein seedha nahi.
+  useEffect(() => {
+    if (!owner || !repo) {
+      return;
+    }
 
-  const [selectedPR, setSelectedPR] =
-    useState<PullRequest | null>(null);
+    let cancelled = false;
+
+    getPullRequests(owner, repo)
+      .then((data) => {
+        if (!cancelled) {
+          setPullRequests(data);
+        }
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Failed to load pull requests."
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [owner, repo, reloadKey]);
+
+  const handleRetry = () => {
+    setError("");
+    setLoading(true);
+    setReloadKey((key) => key + 1);
+  };
+
+  const handleBack = () => navigate("/repositories");
+
+  const handleViewDetails = () => {
+    if (!selectedPR || !owner || !repo) {
+      return;
+    }
+
+    navigate(
+      `/repositories/${encodeURIComponent(owner)}/${encodeURIComponent(
+        repo
+      )}/pull-requests/${selectedPR.number}`
+    );
+  };
+
+  // Hooks ke baad hi early return, taaki hooks ka order na bigde.
+  if (!owner || !repo) {
+    return (
+      <div className="min-h-screen bg-gray-950 text-white p-6">
+        <button
+          type="button"
+          onClick={handleBack}
+          className="mb-6 rounded-lg bg-gray-800 px-4 py-2 text-sm font-medium"
+        >
+          Back
+        </button>
+
+        <h1 className="text-2xl font-bold">
+          Repository not specified
+        </h1>
+      </div>
+    );
+  }
 
   const filteredPullRequests = pullRequests.filter((pr) => {
     const matchesSearch =
       pr.title.toLowerCase().includes(search.toLowerCase()) ||
       pr.number.toString().includes(search);
 
-    const matchesFilter =
-      filter === "all" || pr.status === filter;
+    const matchesFilter = filter === "all" || pr.status === filter;
 
     return matchesSearch && matchesFilter;
   });
@@ -72,9 +130,21 @@ const PullRequests = () => {
       </header>
 
       <main className="max-w-6xl mx-auto px-6 py-8">
+        <button
+          type="button"
+          onClick={handleBack}
+          className="mb-6 rounded-lg bg-gray-800 hover:bg-gray-700 px-4 py-2 text-sm font-medium"
+        >
+          Back to repositories
+        </button>
+
         <h2 className="text-3xl font-bold">
           Pull Requests
         </h2>
+
+        <p className="mt-2 font-mono text-sm text-gray-400">
+          {owner}/{repo}
+        </p>
 
         <p className="mt-2 text-gray-400">
           Select a pull request to review its code changes.
@@ -130,73 +200,99 @@ const PullRequests = () => {
           </button>
         </div>
 
-        {/* Pull Request List */}
-        <div className="mt-6 space-y-4">
-          {filteredPullRequests.map((pr) => (
-            <div
-              key={pr.id}
-              className={`border rounded-xl p-5 ${
-                selectedPR?.id === pr.id
-                  ? "border-blue-500 bg-blue-950/20"
-                  : "border-gray-800 bg-gray-900"
-              }`}
+        {/* Loading */}
+        {loading && (
+          <div className="text-center py-10 text-gray-500">
+            Loading pull requests...
+          </div>
+        )}
+
+        {/* Error */}
+        {!loading && error && (
+          <div className="mt-6 rounded-lg border border-red-900 bg-red-950/30 px-4 py-3 flex items-center justify-between gap-4">
+            <p className="text-sm text-red-400">
+              {error}
+            </p>
+
+            <button
+              type="button"
+              onClick={handleRetry}
+              className="shrink-0 px-4 py-2 rounded-lg text-sm font-medium bg-red-600 hover:bg-red-700 text-white"
             >
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="flex items-center gap-3">
-                    <span className="text-gray-500">
-                      #{pr.number}
-                    </span>
+              Try again
+            </button>
+          </div>
+        )}
 
-                    <h3 className="text-lg font-semibold">
-                      {pr.title}
-                    </h3>
+        {/* Pull Request List */}
+        {!loading && !error && (
+          <div className="mt-6 space-y-4">
+            {filteredPullRequests.map((pr) => (
+              <div
+                key={pr.id}
+                className={`border rounded-xl p-5 ${
+                  selectedPR?.id === pr.id
+                    ? "border-blue-500 bg-blue-950/20"
+                    : "border-gray-800 bg-gray-900"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-3">
+                      <span className="text-gray-500">
+                        #{pr.number}
+                      </span>
+
+                      <h3 className="text-lg font-semibold truncate">
+                        {pr.title}
+                      </h3>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-4 mt-3 text-sm text-gray-400">
+                      <span>
+                        Author: {pr.author}
+                      </span>
+
+                      <span>
+                        Updated {formatDate(pr.updatedAt)}
+                      </span>
+
+                      <span
+                        className={`px-2.5 py-1 rounded-full text-xs ${
+                          pr.status === "open"
+                            ? "bg-green-500/10 text-green-400"
+                            : "bg-gray-700 text-gray-300"
+                        }`}
+                      >
+                        {pr.status}
+                      </span>
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-4 mt-3 text-sm text-gray-400">
-                    <span>
-                      Author: {pr.author}
-                    </span>
-
-                    <span>
-                      Updated {pr.updatedAt}
-                    </span>
-
-                    <span
-                      className={`px-2.5 py-1 rounded-full text-xs ${
-                        pr.status === "open"
-                          ? "bg-green-500/10 text-green-400"
-                          : "bg-gray-700 text-gray-300"
-                      }`}
-                    >
-                      {pr.status}
-                    </span>
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPR(pr)}
+                    className={`shrink-0 px-4 py-2 rounded-lg text-sm font-medium ${
+                      selectedPR?.id === pr.id
+                        ? "bg-green-600 text-white"
+                        : "bg-blue-600 hover:bg-blue-700 text-white"
+                    }`}
+                  >
+                    {selectedPR?.id === pr.id
+                      ? "Selected"
+                      : "Select PR"}
+                  </button>
                 </div>
-
-                <button
-                  type="button"
-                  onClick={() => setSelectedPR(pr)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium ${
-                    selectedPR?.id === pr.id
-                      ? "bg-green-600 text-white"
-                      : "bg-blue-600 hover:bg-blue-700 text-white"
-                  }`}
-                >
-                  {selectedPR?.id === pr.id
-                    ? "Selected"
-                    : "Select PR"}
-                </button>
               </div>
-            </div>
-          ))}
+            ))}
 
-          {filteredPullRequests.length === 0 && (
-            <div className="text-center py-10 text-gray-500">
-              No pull requests found.
-            </div>
-          )}
-        </div>
+            {filteredPullRequests.length === 0 && (
+              <div className="text-center py-10 text-gray-500">
+                No pull requests found.
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Selected PR */}
         {selectedPR && (
@@ -215,6 +311,7 @@ const PullRequests = () => {
 
             <button
               type="button"
+              onClick={handleViewDetails}
               className="mt-4 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium"
             >
               View PR Details
