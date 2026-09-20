@@ -1,38 +1,150 @@
-import { runESLint } from "../services/eslint.service.js";
+// server/src/controllers/github.controller.ts
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import type { Request, Response } from "express";
 import axios from "axios";
 import { githubConfig } from "../config/github.js";
-import { parsePatchToDiffLines } from "../services/diff.service.js";
+import { getAccessToken } from "../middleware/auth.middleware.js";
+import * as githubService from "../services/github.service.js";
+
+const REQUEST_TIMEOUT_MS = 15_000;
+
+/* ------------------------------------------------------------------ */
+/* OAuth state (CSRF protection)                                       */
+/* ------------------------------------------------------------------ */
+
+const STATE_COOKIE = "oauth_state";
+const STATE_COOKIE_PATH = "/api/github";
+const STATE_MAX_AGE_MS = 10 * 60 * 1000;
+
+const stateCookieOptions = {
+  httpOnly: true,
+  sameSite: "lax" as const,
+  secure: process.env.NODE_ENV === "production",
+  path: STATE_COOKIE_PATH,
+};
+
+// cookie-parser install kiye bina ek cookie padhne ka chhota helper.
+const readCookie = (req: Request, name: string): string | undefined => {
+  const header = req.headers.cookie;
+
+  if (!header) {
+    return undefined;
+  }
+
+  for (const part of header.split(";")) {
+    const [rawName, ...rest] = part.trim().split("=");
+
+    if (rawName === name) {
+      return rest.join("=");
+    }
+  }
+
+  return undefined;
+};
+
+const isSameState = (actual: string, expected: string): boolean => {
+  const a = Buffer.from(actual);
+  const b = Buffer.from(expected);
+
+  return a.length === b.length && timingSafeEqual(a, b);
+};
+
+// Frontend ke AuthCallback page par error bhejta hai (#error=...).
+const redirectWithError = (res: Response, message: string): void => {
+  const params = new URLSearchParams({ error: message });
+
+  res.redirect(`${githubConfig.clientUrl}/auth/callback#${params.toString()}`);
+};
+
+/* ------------------------------------------------------------------ */
+/* Small helpers                                                       */
+/* ------------------------------------------------------------------ */
+
+const param = (value: unknown): string | undefined => {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
+};
+
+// GithubApiError ka status aur safe message seedha client ko jata hai.
+// Baaki errors ka sirf message log hota hai (poore error mein token ho sakta hai).
+const sendError = (res: Response, error: unknown, fallback: string): void => {
+  if (error instanceof githubService.GithubApiError) {
+    res.status(error.status).json({
+      success: false,
+      message: error.message,
+    });
+    return;
+  }
+
+  console.error(fallback, error instanceof Error ? error.message : error);
+
+  res.status(500).json({
+    success: false,
+    message: fallback,
+  });
+};
+
+/* ------------------------------------------------------------------ */
+/* OAuth                                                               */
+/* ------------------------------------------------------------------ */
+
+interface GithubTokenResponse {
+  access_token?: string;
+  error?: string;
+  error_description?: string;
+}
+
+interface GithubUserResponse {
+  login: string;
+  avatar_url: string | null;
+}
 
 export const githubLogin = (_req: Request, res: Response) => {
+  const state = randomBytes(16).toString("hex");
+
+  res.cookie(STATE_COOKIE, state, {
+    ...stateCookieOptions,
+    maxAge: STATE_MAX_AGE_MS,
+  });
+
   const params = new URLSearchParams({
     client_id: githubConfig.clientId,
     redirect_uri: githubConfig.callbackUrl,
     scope: "read:user user:email repo",
+    state,
   });
 
-  const githubUrl = `https://github.com/login/oauth/authorize?${params.toString()}`;
-
-  res.redirect(githubUrl);
+  res.redirect(`https://github.com/login/oauth/authorize?${params.toString()}`);
 };
 
-export const githubCallback = async (
-  req: Request,
-  res: Response
-) => {
+export const githubCallback = async (req: Request, res: Response) => {
+  const code = param(req.query.code);
+  const state = param(req.query.state);
+  const expectedState = readCookie(req, STATE_COOKIE);
+
+  // State cookie ek hi baar kaam aati hai, isliye turant hata dete hain.
+  res.clearCookie(STATE_COOKIE, stateCookieOptions);
+
+  // User ne GitHub par "Cancel" dabaya.
+  if (req.query.error) {
+    redirectWithError(res, "GitHub login was cancelled or denied.");
+    return;
+  }
+
+  if (!state || !expectedState || !isSameState(state, expectedState)) {
+    redirectWithError(
+      res,
+      "Login session is invalid or expired. Please try again."
+    );
+    return;
+  }
+
+  if (!code) {
+    redirectWithError(res, "GitHub authorization code is missing.");
+    return;
+  }
+
   try {
-    const { code } = req.query;
-
-    if (!code || typeof code !== "string") {
-      res.status(400).json({
-        success: false,
-        message: "GitHub authorization code is missing",
-      });
-
-      return;
-    }
-
-    const tokenResponse = await axios.post(
+    const tokenResponse = await axios.post<GithubTokenResponse>(
       "https://github.com/login/oauth/access_token",
       {
         client_id: githubConfig.clientId,
@@ -41,101 +153,64 @@ export const githubCallback = async (
         redirect_uri: githubConfig.callbackUrl,
       },
       {
-        headers: {
-          Accept: "application/json",
-        },
+        headers: { Accept: "application/json" },
+        timeout: REQUEST_TIMEOUT_MS,
       }
     );
 
     const accessToken = tokenResponse.data.access_token;
 
     if (!accessToken) {
-      res.status(400).json({
-        success: false,
-        message: "Failed to get GitHub access token",
-      });
-
+      redirectWithError(
+        res,
+        "GitHub did not return an access token. Please try again."
+      );
       return;
     }
 
-    const userResponse = await axios.get(
+    const userResponse = await axios.get<GithubUserResponse>(
       "https://api.github.com/user",
       {
         headers: {
           Authorization: `Bearer ${accessToken}`,
           Accept: "application/vnd.github+json",
         },
+        timeout: REQUEST_TIMEOUT_MS,
       }
     );
 
-    res.status(200).json({
-      success: true,
-      user: userResponse.data,
-      accessToken,
+    const params = new URLSearchParams({
+      access_token: accessToken,
+      login: userResponse.data.login,
     });
-  } catch (error) {
-    console.error("GitHub OAuth error:", error);
 
-    res.status(500).json({
-      success: false,
-      message: "GitHub authentication failed",
-    });
+    if (userResponse.data.avatar_url) {
+      params.set("avatar_url", userResponse.data.avatar_url);
+    }
+
+    // Token URL fragment (#) mein jata hai, query string (?) mein nahi.
+    // Fragment browser ke bahar kabhi nahi jata (na server logs mein, na Referer mein).
+    res.setHeader("Cache-Control", "no-store");
+    res.redirect(`${githubConfig.clientUrl}/auth/callback#${params.toString()}`);
+  } catch (error) {
+    // Sirf message log karte hain. Poore axios error mein client_secret/token aa sakta hai.
+    console.error(
+      "GitHub OAuth error:",
+      error instanceof Error ? error.message : error
+    );
+
+    redirectWithError(res, "GitHub authentication failed. Please try again.");
   }
 };
 
-export const getRepositories = async (
-  req: Request,
-  res: Response
-) => {
+/* ------------------------------------------------------------------ */
+/* GitHub data (routes par requireGithubToken middleware lagega)        */
+/* ------------------------------------------------------------------ */
+
+export const getRepositories = async (_req: Request, res: Response) => {
   try {
-    const authorizationHeader = req.headers.authorization;
-
-    if (!authorizationHeader) {
-      res.status(401).json({
-        success: false,
-        message: "GitHub access token is required",
-      });
-
-      return;
-    }
-
-    const response = await axios.get(
-      "https://api.github.com/user/repos",
-      {
-        headers: {
-          Authorization: authorizationHeader,
-          Accept: "application/vnd.github+json",
-        },
-        params: {
-          per_page: 100,
-          sort: "updated",
-          direction: "desc",
-        },
-      }
-    );
-
-    const repositories = response.data.map(
-      (repo: {
-        id: number;
-        name: string;
-        full_name: string;
-        private: boolean;
-        language: string | null;
-        html_url: string;
-        description: string | null;
-        owner: {
-          login: string;
-        };
-      }) => ({
-        id: repo.id,
-        name: repo.name,
-        fullName: repo.full_name,
-        private: repo.private,
-        language: repo.language,
-        htmlUrl: repo.html_url,
-        description: repo.description,
-        owner: repo.owner.login,
-      })
+    const repositories = await githubService.getRepositories(
+      getAccessToken(res)
     );
 
     res.status(200).json({
@@ -143,78 +218,27 @@ export const getRepositories = async (
       repositories,
     });
   } catch (error) {
-    console.error("GitHub repositories error:", error);
-
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch GitHub repositories",
-    });
+    sendError(res, error, "Failed to fetch GitHub repositories");
   }
 };
 
-export const getPullRequests = async (
-  req: Request,
-  res: Response
-) => {
+export const getPullRequests = async (req: Request, res: Response) => {
+  const owner = param(req.params.owner);
+  const repo = param(req.params.repo);
+
+  if (!owner || !repo) {
+    res.status(400).json({
+      success: false,
+      message: "Repository owner and name are required",
+    });
+    return;
+  }
+
   try {
-    const authorizationHeader = req.headers.authorization;
-
-    if (!authorizationHeader) {
-      res.status(401).json({
-        success: false,
-        message: "GitHub access token is required",
-      });
-
-      return;
-    }
-
-    const { owner, repo } = req.params;
-
-    if (!owner || !repo) {
-      res.status(400).json({
-        success: false,
-        message: "Repository owner and name are required",
-      });
-
-      return;
-    }
-
-    const response = await axios.get(
-      `https://api.github.com/repos/${owner}/${repo}/pulls`,
-      {
-        headers: {
-          Authorization: authorizationHeader,
-          Accept: "application/vnd.github+json",
-        },
-        params: {
-          state: "all",
-          per_page: 50,
-          sort: "updated",
-          direction: "desc",
-        },
-      }
-    );
-
-    const pullRequests = response.data.map(
-      (pr: {
-        id: number;
-        number: number;
-        title: string;
-        state: string;
-        user: {
-          login: string;
-        };
-        updated_at: string;
-        html_url: string;
-      }) => ({
-        id: pr.id,
-        number: pr.number,
-        title: pr.title,
-        status: pr.state === "open" ? "open" : "closed",
-        author: pr.user.login,
-        updatedAt: pr.updated_at,
-        htmlUrl: pr.html_url,
-      })
+    const pullRequests = await githubService.getPullRequests(
+      owner,
+      repo,
+      getAccessToken(res)
     );
 
     res.status(200).json({
@@ -222,143 +246,59 @@ export const getPullRequests = async (
       pullRequests,
     });
   } catch (error) {
-    console.error("GitHub pull requests error:", error);
-
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch GitHub pull requests",
-    });
+    sendError(res, error, "Failed to fetch GitHub pull requests");
   }
 };
 
-export const getPullRequestDetails = async (
-  req: Request,
-  res: Response
-) => {
+export const getPullRequestDetails = async (req: Request, res: Response) => {
+  const owner = param(req.params.owner);
+  const repo = param(req.params.repo);
+  const number = param(req.params.number);
+
+  if (!owner || !repo || !number) {
+    res.status(400).json({
+      success: false,
+      message: "Repository owner, name and pull request number are required",
+    });
+    return;
+  }
+
   try {
-    const authorizationHeader = req.headers.authorization;
-
-    if (!authorizationHeader) {
-      res.status(401).json({
-        success: false,
-        message: "GitHub access token is required",
-      });
-
-      return;
-    }
-
-    const { owner, repo, number } = req.params;
-
-    if (!owner || !repo || !number) {
-      res.status(400).json({
-        success: false,
-        message: "Repository owner, name and pull request number are required",
-      });
-
-      return;
-    }
-
-    const response = await axios.get(
-      `https://api.github.com/repos/${owner}/${repo}/pulls/${number}`,
-      {
-        headers: {
-          Authorization: authorizationHeader,
-          Accept: "application/vnd.github+json",
-        },
-      }
+    const pullRequest = await githubService.getPullRequestDetails(
+      owner,
+      repo,
+      Number(number),
+      getAccessToken(res)
     );
-
-    const pr = response.data;
-
-    const pullRequest = {
-      id: pr.id,
-      number: pr.number,
-      title: pr.title,
-      description: pr.body,
-      status: pr.state === "open" ? "open" : "closed",
-      author: pr.user.login,
-      updatedAt: pr.updated_at,
-      createdAt: pr.created_at,
-      baseBranch: pr.base.ref,
-      headBranch: pr.head.ref,
-      headSha: pr.head.sha,
-      additions: pr.additions,
-      deletions: pr.deletions,
-      changedFiles: pr.changed_files,
-      htmlUrl: pr.html_url,
-    };
 
     res.status(200).json({
       success: true,
       pullRequest,
     });
   } catch (error) {
-    console.error("GitHub pull request details error:", error);
-
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch GitHub pull request details",
-    });
+    sendError(res, error, "Failed to fetch GitHub pull request details");
   }
 };
 
-export const getPullRequestFiles = async (
-  req: Request,
-  res: Response
-) => {
+export const getPullRequestFiles = async (req: Request, res: Response) => {
+  const owner = param(req.params.owner);
+  const repo = param(req.params.repo);
+  const number = param(req.params.number);
+
+  if (!owner || !repo || !number) {
+    res.status(400).json({
+      success: false,
+      message: "Repository owner, name and pull request number are required",
+    });
+    return;
+  }
+
   try {
-    const authorizationHeader = req.headers.authorization;
-
-    if (!authorizationHeader) {
-      res.status(401).json({
-        success: false,
-        message: "GitHub access token is required",
-      });
-
-      return;
-    }
-
-    const { owner, repo, number } = req.params;
-
-    if (!owner || !repo || !number) {
-      res.status(400).json({
-        success: false,
-        message: "Repository owner, name and pull request number are required",
-      });
-
-      return;
-    }
-
-    const response = await axios.get(
-      `https://api.github.com/repos/${owner}/${repo}/pulls/${number}/files`,
-      {
-        headers: {
-          Authorization: authorizationHeader,
-          Accept: "application/vnd.github+json",
-        },
-        params: {
-          per_page: 100,
-        },
-      }
-    );
-
-    const files = response.data.map(
-      (file: {
-        filename: string;
-        status: string;
-        additions: number;
-        deletions: number;
-        patch?: string;
-      }) => ({
-        filename: file.filename,
-        status: file.status,
-        additions: file.additions,
-        deletions: file.deletions,
-        // patch can be missing for binary files or very large diffs —
-        // handled gracefully as null instead of throwing.
-        patch: file.patch ?? null,
-        diff: parsePatchToDiffLines(file.patch),
-      })
+    const files = await githubService.getPullRequestFiles(
+      owner,
+      repo,
+      Number(number),
+      getAccessToken(res)
     );
 
     res.status(200).json({
@@ -366,11 +306,6 @@ export const getPullRequestFiles = async (
       files,
     });
   } catch (error) {
-    console.error("GitHub pull request files error:", error);
-
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch GitHub pull request files",
-    });
+    sendError(res, error, "Failed to fetch GitHub pull request files");
   }
 };
