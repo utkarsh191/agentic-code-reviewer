@@ -338,7 +338,7 @@ const PullRequestDetails = () => {
           <span className="text-green-400">+{pullRequest.additions}</span>
           <span className="text-red-400">-{pullRequest.deletions}</span>
 
-          
+          <a
             href={pullRequest.htmlUrl}
             target="_blank"
             rel="noopener noreferrer"
